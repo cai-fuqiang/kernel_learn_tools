@@ -1,0 +1,5 @@
+# Email Translator 依赖
+# 标准库已包含 imaplib / email / json / subprocess，无需额外安装
+# 以下为可选增强依赖
+
+chardet>=5.0.0        # 自动检测邮件编码（可选，提升多语言兼容性）

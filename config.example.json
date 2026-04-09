@@ -1,0 +1,22 @@
+{
+  "email":      "your@email.com",
+  "password":   "your_email_app_password",
+  "provider":   "gmail",
+  "imap_server": "",
+  "imap_port":  993,
+
+  "folder":     "INBOX",
+  "max_emails": 20,
+  "days":       30,
+
+  "backend":      "api",
+  "api_key":      "sk-xxxxxxxx",
+  "api_provider": "deepseek",
+  "api_base_url": "",
+  "model":        "",
+  "batch_size":   5,
+
+  "_注释_api_provider可选值": "openai / deepseek / kimi / siliconflow / aliyun",
+  "_注释_backend_openclaw": "若使用 openclaw，将 backend 改为 openclaw，api_key 可留空",
+  "openclaw":   "openclaw"
+}
