@@ -795,80 +795,96 @@ def _split_paragraphs(text: str) -> List[str]:
 
 
 def _is_untranslatable(para: str) -> bool:
-    """判断段落是否不需要翻译（引用、签名行、代码、diff等），应横跨两栏"""
+    """判断段落是否不需要翻译（引用、签名行、代码、diff、数据等），应横跨两栏"""
     lines = para.strip().splitlines()
     if not lines:
         return False
+    non_empty = [l for l in lines if l.strip()]
+    if not non_empty:
+        return True
+
     # 全部是 > 引用行
-    if all(l.lstrip().startswith('>') for l in lines):
+    if all(l.lstrip().startswith('>') for l in non_empty):
         return True
     # 全部是签名行
     sig_prefixes = ('Signed-off-by:', 'Reviewed-by:', 'Acked-by:',
                     'Tested-by:', 'Cc:', 'Link:', 'Fixes:', 'Reported-by:')
-    if all(l.strip().startswith(sig_prefixes) for l in lines if l.strip()):
+    if all(l.strip().startswith(sig_prefixes) for l in non_empty):
         return True
     # 折叠标记
-    if para.strip().startswith('[...') and para.strip().endswith('...]'):
+    s = para.strip()
+    if s.startswith('[...') and s.endswith('...]'):
         return True
+    # 折叠标记 + 引用行混合（如 "[...N行引用已省略...]\n> xxx"）
+    if any(l.strip().startswith('[...') and '...]' in l for l in non_empty):
+        other = [l for l in non_empty if not (l.strip().startswith('[...') and '...]' in l.strip())]
+        if all(l.lstrip().startswith('>') for l in other):
+            return True
     # diff / 代码 / 数据行
     if all(_is_code_or_data_line(l) or l.lstrip().startswith(('>', '+', '-', 'diff ', '@@', 'index ')) or not l.strip() for l in lines):
         return True
     # 代码块标记
-    if para.strip().startswith('```'):
+    if s.startswith('```'):
         return True
+    # 纯 URL 行
+    if all(l.strip().startswith(('http://', 'https://', 'git://')) for l in non_empty):
+        return True
+    # 以 - 开头的数据行（如 "-0.5% 500.perlbench_r"）
+    if all(re.match(r'\s*-?\d+\.?\d*%\s+\S+', l.strip()) for l in non_empty):
+        return True
+    # 多数行是代码/数据/引用 → 整段不翻译
+    if len(non_empty) > 1:
+        untrans_count = sum(1 for l in non_empty
+                           if _is_code_or_data_line(l)
+                           or l.lstrip().startswith(('>', '+', '-', 'diff ', '@@', 'index '))
+                           or l.strip().startswith(sig_prefixes)
+                           or (l.strip().startswith('[...') and '...]' in l.strip()))
+        if untrans_count >= len(non_empty) * 0.6:
+            return True
     return False
 
 
 def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
 
-    策略：
-      - 不可翻译段落（数据/代码/引用/签名）横跨两栏显示（pg-full）
-      - 可翻译段落按顺序左右对齐
+    策略：以英文原文段落为骨架逐段处理：
+      1. 不可翻译段落 → 横跨两栏 (pg-full)
+      2. 可翻译段落 → 左右对齐 (pg-cell)，中文侧从翻译文本中按顺序取
 
-    Args:
-        text_cn:   翻译后的中文正文
-        text_orig: 英文原文正文
-
-    Returns:
-        HTML 字符串：段落对齐网格
+    利用 translate_body 会原样保留不可翻译段落的特性，
+    用"与原文相同的段落"作为锚点，确保中英文段落严格对齐。
     """
     paras_cn = _split_paragraphs(text_cn)
     paras_en = _split_paragraphs(text_orig)
 
-    # 将段落分为可翻译和不可翻译两类，并记录原始顺序
-    # 以英文原文为基准遍历，逐段决定渲染方式
     rows = []
-    cn_idx = 0  # 可翻译段落的中文游标
-
-    # 收集中文侧的可翻译段落（排除不可翻译的）
-    cn_translatable = [p for p in paras_cn if not _is_untranslatable(p)]
+    cn_idx = 0
 
     for en in paras_en:
         if _is_untranslatable(en):
-            # 数据/代码/引用/签名段落 → 横跨两栏
+            # 不可翻译段落 → 横跨两栏
             rows.append(
                 f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
             )
+            # 同步中文游标：跳过中文侧中与此段相同的锚点段落
+            if cn_idx < len(paras_cn) and paras_cn[cn_idx].strip() == en.strip():
+                cn_idx += 1
         else:
             # 可翻译段落 → 左右对齐
-            cn = cn_translatable[cn_idx] if cn_idx < len(cn_translatable) else ""
+            # 从中文侧取下一个段落，跳过中间的不可翻译锚点
+            while cn_idx < len(paras_cn) and _is_untranslatable(paras_cn[cn_idx]):
+                cn_idx += 1
+            cn = paras_cn[cn_idx] if cn_idx < len(paras_cn) else ""
             cn_idx += 1
             rows.append(
                 f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
                 f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
             )
 
-    # 如果中文侧还有剩余可翻译段落（翻译产生了多余段落）
-    while cn_idx < len(cn_translatable):
-        rows.append(
-            f'<div class="pg-cell"><pre>{_esc(cn_translatable[cn_idx])}</pre></div>'
-            f'<div class="pg-cell pg-orig"><pre></pre></div>'
-        )
-        cn_idx += 1
+    if not rows:
+        rows.append(f'<div class="pg-full"><pre>{_esc(text_orig)}</pre></div>')
 
     grid = '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
-
     return grid
 
 
@@ -877,24 +893,21 @@ def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
     paras_cn = _split_paragraphs(cm_cn)
     paras_en = _split_paragraphs(cm_orig)
     rows = []
-    cn_translatable = [p for p in paras_cn if not _is_untranslatable(p)]
     cn_idx = 0
     for en in paras_en:
         if _is_untranslatable(en):
             rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
+            if cn_idx < len(paras_cn) and paras_cn[cn_idx].strip() == en.strip():
+                cn_idx += 1
         else:
-            cn = cn_translatable[cn_idx] if cn_idx < len(cn_translatable) else ""
+            while cn_idx < len(paras_cn) and _is_untranslatable(paras_cn[cn_idx]):
+                cn_idx += 1
+            cn = paras_cn[cn_idx] if cn_idx < len(paras_cn) else ""
             cn_idx += 1
             rows.append(
                 f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
                 f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
             )
-    while cn_idx < len(cn_translatable):
-        rows.append(
-            f'<div class="pg-cell"><pre>{_esc(cn_translatable[cn_idx])}</pre></div>'
-            f'<div class="pg-cell pg-orig"><pre></pre></div>'
-        )
-        cn_idx += 1
     return '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
 
 
