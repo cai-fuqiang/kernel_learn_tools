@@ -837,7 +837,7 @@ def _split_paragraphs(text: str) -> List[str]:
 
 
 def _is_untranslatable(para: str) -> bool:
-    """判断段落是否不需要翻译（引用、签名行、代码等），应横跨两栏"""
+    """判断段落是否不需要翻译（引用、签名行、代码、diff等），应横跨两栏"""
     lines = para.strip().splitlines()
     if not lines:
         return False
@@ -851,6 +851,12 @@ def _is_untranslatable(para: str) -> bool:
         return True
     # 折叠标记
     if para.strip().startswith('[...') and para.strip().endswith('...]'):
+        return True
+    # diff / 代码 / 数据行
+    if all(_is_code_or_data_line(l) or l.lstrip().startswith(('>', '+', '-', 'diff ', '@@', 'index ')) or not l.strip() for l in lines):
+        return True
+    # 代码块标记
+    if para.strip().startswith('```'):
         return True
     return False
 
@@ -956,9 +962,9 @@ def _html_email_node(
     body_orig = em.get("body", "")
     has_translation = body_cn and body_cn != body_orig
 
-    # 分离 diff 代码块（仅用于独立折叠展示）
-    _, diff_cn = _split_body_and_diff(body_cn) if has_translation else ("", "")
-    _, diff_orig = _split_body_and_diff(body_orig)
+    # 分离 diff 代码块：翻译区域只保留正文，diff 单独展示
+    text_cn, diff_cn = _split_body_and_diff(body_cn) if has_translation else ("", "")
+    text_orig, diff_orig = _split_body_and_diff(body_orig)
     diff_code = diff_cn or diff_orig
 
     # 邮件卡片内容
@@ -972,10 +978,10 @@ def _html_email_node(
     card.append(f'  </div>')
 
     if has_translation:
-        # 双栏对比：两边都用完整文本，保持内容对齐
-        card.append(f'  {_render_bilingual_body(body_cn, body_orig)}')
+        # 双栏对比：使用去除 diff 后的正文，diff 在下方独立展示
+        card.append(f'  {_render_bilingual_body(text_cn, text_orig)}')
     else:
-        card.append(f'  <div class="email-body"><pre>{_esc(body_orig)}</pre></div>')
+        card.append(f'  <div class="email-body"><pre>{_esc(text_orig)}</pre></div>')
 
     # diff 代码块：独立可折叠
     if diff_code:
