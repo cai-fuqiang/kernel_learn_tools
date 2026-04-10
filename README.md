@@ -37,7 +37,7 @@ Linux 内核的开发流程高度依赖邮件列表（LKML）。每一个 patch 
 | **交互式问答** | 搜索邮件后进入交互式 AI 问答模式 |
 | **代码关联分析** | 自动提取邮件中的 diff/patch 文件路径和函数名 |
 | **邮件预处理** | 智能分级（DROP/LOW/MEDIUM/HIGH）、去噪、引用去重、签名去除 |
-| **灵活输出** | Markdown 报告、HTML 报告（树状缩进+折叠交互）、AI 上下文打包 |
+| **灵活输出** | Markdown 报告、HTML 报告（树状缩进+折叠交互+中英文左右栏对比） |
 
 ## 系统架构
 
@@ -172,9 +172,10 @@ python pack_for_openclaw.py <hash> --repo /path/to/linux --full --email-json dat
 ### 方式四：翻译已有的 context 文件（translate_context.py）
 
 将 `pack_for_openclaw.py` 生成的完整版 context 文件翻译为可读文档。
+输出的 HTML 文档支持**中英文左右栏对比**显示，并提供**段落级对齐视图**，方便逐段对照阅读。
 
 ```bash
-# 翻译为 HTML（默认，带树状缩进和折叠交互）
+# 翻译为 HTML（默认，带左右栏对比+段落对齐+折叠交互）
 python translate_context.py data/output/xxxx_context_full.txt
 
 # 翻译为 Markdown
@@ -183,9 +184,19 @@ python translate_context.py data/output/xxxx_context_full.txt --format md
 # 使用有道翻译后端
 python translate_context.py data/output/xxxx_context_full.txt --backend youdao
 
+# 跳过低优先级邮件的翻译
+python translate_context.py data/output/xxxx_context_full.txt --skip-low
+
 # 只解析不翻译（调试用）
 python translate_context.py data/output/xxxx_context_full.txt --dry-run
 ```
+
+**HTML 输出交互功能：**
+- **双栏对比**：每封邮件左栏显示中文翻译、右栏显示英文原文
+- **面板折叠**：点击 «/» 按钮可折叠/展开任意一侧
+- **全局视图切换**：顶部「双栏对比 / 仅翻译 / 仅原文」按钮一键切换
+- **段落对齐视图**：展开「段落对齐视图」可查看中英文逐段对齐网格
+- **响应式适配**：窄屏自动切换为上下布局
 
 ### 方式五：裁剪 context 文件（trim_context.py）
 
@@ -265,11 +276,13 @@ python main.py --topic "mm/vmalloc" --translator openclaw
 | 文件类型 | 说明 |
 |----------|------|
 | `*_context_full.txt` | 完整版 AI 上下文（commit + diff + 邮件线程） |
-| `*_translated.html` | 翻译后的 HTML 文档（带折叠交互） |
+| `*_translated.html` | 翻译后的 HTML 文档（中英文左右栏对比+段落对齐+折叠交互） |
 | `*_YYYYMMDD_HHMMSS.md` | 中英文对照 Markdown 报告 |
 | `*_simple_*.md` | 简化版报告（无翻译） |
 
-原始邮件数据保存在 `data/emails/` 目录（使用 `--save-emails` 参数时）。
+示例输出见 `doc/example_output/` 目录：
+- `v1/` — 初版输出（上下布局，翻译在上、原文折叠在下）
+- `v2/` — 新版输出（左右栏对比布局，段落对齐，面板可折叠）
 
 ## 邮件预处理策略
 
@@ -311,7 +324,9 @@ kernel_email/
 ├── data/
 │   ├── emails/                 # 原始邮件存储
 │   └── output/                 # 输出报告存储
-└── logs/                       # 日志目录
+├── doc/
+│   └── example_output/         # 示例输出（v1: 上下布局, v2: 左右栏对比）
+├── logs/                       # 日志目录
 ```
 
 ## 常见问题

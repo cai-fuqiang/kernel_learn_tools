@@ -400,7 +400,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 body {{
   font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg); color: var(--text);
-  line-height: 1.6; max-width: 1100px; margin: 0 auto; padding: 24px;
+  line-height: 1.6; max-width: 1400px; margin: 0 auto; padding: 24px;
 }}
 h1 {{ font-size: 1.6em; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }}
 h2 {{ font-size: 1.3em; margin: 28px 0 12px; color: var(--accent); }}
@@ -536,6 +536,74 @@ pre.checklist {{
   color: var(--text-muted); cursor: pointer;
 }}
 .controls button:hover {{ background: var(--border); color: var(--text); }}
+
+/* ── 双栏对比布局 ── */
+.bilingual {{
+  display: flex; gap: 0; margin: 4px 0; border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}}
+.bilingual .bi-panel {{
+  flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column;
+  transition: flex 0.3s ease;
+}}
+.bilingual .bi-panel + .bi-panel {{ border-left: 1px solid var(--border); }}
+.bilingual .bi-panel.collapsed {{
+  flex: 0 0 36px; min-width: 36px; overflow: hidden;
+}}
+.bilingual .bi-panel.collapsed .bi-body {{ display: none; }}
+.bi-hdr {{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 10px; background: rgba(88,166,255,0.06);
+  font-size: 12px; font-weight: 500; color: var(--text-muted);
+  border-bottom: 1px solid var(--border); user-select: none; flex-shrink: 0;
+}}
+.bi-hdr .bi-label {{ white-space: nowrap; }}
+.bi-hdr .bi-toggle {{
+  cursor: pointer; background: none; border: none; color: var(--accent);
+  font-size: 14px; padding: 0 4px; line-height: 1;
+}}
+.bi-hdr .bi-toggle:hover {{ color: var(--text); }}
+.bi-body {{ flex: 1; overflow: auto; }}
+
+/* 段落对齐网格 */
+.para-grid {{
+  display: grid; grid-template-columns: 1fr 1fr; width: 100%;
+}}
+.para-grid .pg-cell {{
+  padding: 6px 12px; vertical-align: top;
+  border-bottom: 1px solid rgba(48,54,61,0.5);
+}}
+.para-grid .pg-cell:nth-child(odd) {{ border-right: 1px solid var(--border); }}
+.para-grid .pg-cell pre {{
+  font-family: 'SF Mono','Consolas',monospace; font-size: 13px;
+  white-space: pre-wrap; word-wrap: break-word; line-height: 1.5;
+  color: var(--text); background: transparent; margin: 0;
+}}
+.para-grid .pg-cell.pg-orig pre {{ color: var(--text-muted); font-size: 12px; }}
+.para-grid .pg-full {{
+  grid-column: 1 / -1; padding: 6px 12px;
+  border-bottom: 1px solid rgba(48,54,61,0.5);
+}}
+.para-grid .pg-full pre {{
+  font-family: 'SF Mono','Consolas',monospace; font-size: 13px;
+  white-space: pre-wrap; word-wrap: break-word; line-height: 1.5;
+  color: var(--text-muted); background: transparent; margin: 0;
+}}
+
+/* 响应式：窄屏切上下布局 */
+@media (max-width: 768px) {{
+  .bilingual {{ flex-direction: column; }}
+  .bilingual .bi-panel + .bi-panel {{ border-left: none; border-top: 1px solid var(--border); }}
+  .bilingual .bi-panel.collapsed {{ flex: 0 0 32px; min-width: unset; }}
+  .para-grid {{ grid-template-columns: 1fr; }}
+  .para-grid .pg-cell:nth-child(odd) {{ border-right: none; }}
+  .para-grid .pg-full {{ grid-column: 1; }}
+}}
+
+/* 控件激活态 */
+.controls button.active {{
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}}
 </style>
 </head>
 <body>
@@ -553,9 +621,42 @@ pre.checklist {{
 <div class="controls">
   <button onclick="document.querySelectorAll('details.reply-thread').forEach(d=>d.open=true)">展开全部回复</button>
   <button onclick="document.querySelectorAll('details.reply-thread').forEach(d=>d.open=false)">收起全部回复</button>
+  <button onclick="biView('both')" class="active" id="btn-both">双栏对比</button>
+  <button onclick="biView('cn')" id="btn-cn">仅翻译</button>
+  <button onclick="biView('en')" id="btn-en">仅原文</button>
 </div>
 {threads_html}
 
+<script>
+function biToggle(btn){{
+  var panel=btn.closest('.bi-panel');
+  panel.classList.toggle('collapsed');
+  btn.textContent=panel.classList.contains('collapsed')?'«':'»';
+  if(panel.nextElementSibling&&panel.nextElementSibling.classList.contains('bi-panel')){{
+    // nothing
+  }}
+  if(panel.previousElementSibling&&panel.previousElementSibling.classList.contains('bi-panel')){{
+    // nothing
+  }}
+}}
+function biView(mode){{
+  document.querySelectorAll('.bilingual').forEach(function(el){{
+    var panels=el.querySelectorAll('.bi-panel');
+    if(panels.length<2) return;
+    var cn=panels[0],en=panels[1];
+    cn.classList.remove('collapsed');
+    en.classList.remove('collapsed');
+    if(mode==='cn') en.classList.add('collapsed');
+    if(mode==='en') cn.classList.add('collapsed');
+    cn.querySelector('.bi-toggle').textContent=cn.classList.contains('collapsed')?'»':'«';
+    en.querySelector('.bi-toggle').textContent=en.classList.contains('collapsed')?'«':'»';
+  }});
+  ['both','cn','en'].forEach(function(m){{
+    var b=document.getElementById('btn-'+m);
+    if(b) b.classList.toggle('active',m===mode);
+  }});
+}}
+</script>
 </body>
 </html>"""
 
@@ -593,6 +694,117 @@ def _split_body_and_diff(body: str) -> tuple:
     return body, ""
 
 
+def _split_paragraphs(text: str) -> List[str]:
+    """将正文按空行拆分为段落列表，保留代码/引用块的完整性"""
+    if not text:
+        return []
+    # 按连续空行分段
+    raw_paras = re.split(r'\n\n+', text.strip())
+    return [p for p in raw_paras if p.strip()]
+
+
+def _is_untranslatable(para: str) -> bool:
+    """判断段落是否不需要翻译（引用、签名行、代码等），应横跨两栏"""
+    lines = para.strip().splitlines()
+    if not lines:
+        return False
+    # 全部是 > 引用行
+    if all(l.lstrip().startswith('>') for l in lines):
+        return True
+    # 全部是签名行
+    sig_prefixes = ('Signed-off-by:', 'Reviewed-by:', 'Acked-by:',
+                    'Tested-by:', 'Cc:', 'Link:', 'Fixes:', 'Reported-by:')
+    if all(l.strip().startswith(sig_prefixes) for l in lines if l.strip()):
+        return True
+    # 折叠标记
+    if para.strip().startswith('[...') and para.strip().endswith('...]'):
+        return True
+    return False
+
+
+def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
+    """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
+
+    Args:
+        text_cn:   翻译后的中文正文
+        text_orig: 英文原文正文
+
+    Returns:
+        HTML 字符串：一个 .bilingual 容器，内含段落对齐网格
+    """
+    paras_cn = _split_paragraphs(text_cn)
+    paras_en = _split_paragraphs(text_orig)
+
+    # 对齐：取最长的那方，短方补空
+    max_len = max(len(paras_cn), len(paras_en), 1)
+    while len(paras_cn) < max_len:
+        paras_cn.append("")
+    while len(paras_en) < max_len:
+        paras_en.append("")
+
+    # 生成网格行
+    rows = []
+    for cn, en in zip(paras_cn, paras_en):
+        # 如果英文段落是不可翻译内容（引用/签名），横跨两栏
+        if not cn and _is_untranslatable(en):
+            rows.append(
+                f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
+            )
+        elif not en and _is_untranslatable(cn):
+            rows.append(
+                f'<div class="pg-full"><pre>{_esc(cn)}</pre></div>'
+            )
+        else:
+            rows.append(
+                f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
+                f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
+            )
+
+    grid = '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
+
+    # 包裹成双栏面板
+    html = (
+        '<div class="bilingual">\n'
+        '  <div class="bi-panel">\n'
+        '    <div class="bi-hdr"><span class="bi-label">中文翻译</span>'
+        '<button class="bi-toggle" onclick="biToggle(this)">«</button></div>\n'
+        '    <div class="bi-body">\n'
+        f'      <div class="email-body"><pre>{_esc(text_cn)}</pre></div>\n'
+        '    </div>\n'
+        '  </div>\n'
+        '  <div class="bi-panel">\n'
+        '    <div class="bi-hdr"><span class="bi-label">English</span>'
+        '<button class="bi-toggle" onclick="biToggle(this)">»</button></div>\n'
+        '    <div class="bi-body">\n'
+        f'      <div class="email-body"><pre>{_esc(text_orig)}</pre></div>\n'
+        '    </div>\n'
+        '  </div>\n'
+        '</div>\n'
+        '<details class="original"><summary>段落对齐视图</summary>\n'
+        f'{grid}\n'
+        '</details>'
+    )
+    return html
+
+
+def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
+    """渲染 commit message 的双栏对比"""
+    return (
+        '<div class="bilingual">\n'
+        '  <div class="bi-panel">\n'
+        '    <div class="bi-hdr"><span class="bi-label">中文翻译</span>'
+        '<button class="bi-toggle" onclick="biToggle(this)">«</button></div>\n'
+        f'    <div class="bi-body"><pre class="commit-msg">{_esc(cm_cn)}</pre></div>\n'
+        '  </div>\n'
+        '  <div class="bi-panel">\n'
+        '    <div class="bi-hdr"><span class="bi-label">English</span>'
+        '<button class="bi-toggle" onclick="biToggle(this)">»</button></div>\n'
+        f'    <div class="bi-body"><pre class="commit-msg">{_esc(cm_orig)}</pre></div>\n'
+        '  </div>\n'
+        '</div>'
+    )
+
+
 def _html_email_node(
     node: ThreadNode, idx_map: dict, translated_bodies: dict,
     is_root: bool = False,
@@ -628,10 +840,7 @@ def _html_email_node(
     card.append(f'  </div>')
 
     if has_translation:
-        card.append(f'  <div class="email-body"><pre>{_esc(text_cn)}</pre></div>')
-        card.append(f'  <details class="original"><summary>原文</summary>')
-        card.append(f'    <pre class="original-text">{_esc(text_orig)}</pre>')
-        card.append(f'  </details>')
+        card.append(f'  {_render_bilingual_body(text_cn, text_orig)}')
     else:
         card.append(f'  <div class="email-body"><pre>{_esc(text_orig)}</pre></div>')
 
@@ -708,11 +917,7 @@ def generate_html(
     cm_html = ""
     if cm:
         if cm_cn:
-            cm_html = (
-                f'<pre class="commit-msg">{_esc(cm_cn)}</pre>'
-                f'<details class="original"><summary>原文</summary>'
-                f'<pre class="original-text">{_esc(cm)}</pre></details>'
-            )
+            cm_html = _render_bilingual_commit(cm_cn, cm)
         else:
             cm_html = f'<pre class="commit-msg">{_esc(cm)}</pre>'
 
