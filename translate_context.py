@@ -127,45 +127,89 @@ def should_translate(body: str) -> bool:
 
 
 def translate_body(translator: BaseTranslator, body: str) -> str:
-    """翻译邮件正文，保留代码块和引用折叠标记不翻译"""
+    """翻译邮件正文，按段落逐段翻译，保留代码块和引用折叠标记不翻译"""
     if not should_translate(body):
         return body
 
-    placeholders = {}
-    counter = [0]
+    # ── 第一步：按空行拆分为段落 ──
+    raw_paragraphs = re.split(r'(\n\n+)', body)
+    # raw_paragraphs 交替包含 [段落, 分隔符, 段落, 分隔符, ...]
 
-    def _ph(match):
-        key = "XYZPH%04dEND" % counter[0]
-        counter[0] += 1
-        placeholders[key] = match.group(0)
-        return key
+    result_parts = []
+    for part in raw_paragraphs:
+        # 保留空行分隔符原样
+        if not part.strip():
+            result_parts.append(part)
+            continue
 
-    protected = body
-    # 保护代码块
-    protected = re.sub(r"```[\s\S]*?```", _ph, protected)
-    # 保护引用省略标记
-    protected = re.sub(r"\[\.\.\..*?行引用已省略\.\.\.\]", _ph, protected)
-    # 保护 > 引用行
-    protected = re.sub(r"^>.*$", _ph, protected, flags=re.MULTILINE)
-    # 保护 diff 行
-    protected = re.sub(r"^[+-].*$", _ph, protected, flags=re.MULTILINE)
-    # 保护签名行
-    protected = re.sub(
-        r"^(Signed-off-by|Reviewed-by|Acked-by|Tested-by|Cc|Link):.*$",
-        _ph, protected, flags=re.MULTILINE,
-    )
+        # ── 判断段落是否需要翻译 ──
+        lines = part.strip().splitlines()
+        # 全部是引用行 / diff行 / 签名行 → 不翻译
+        is_code_or_quote = all(
+            l.lstrip().startswith(('>', '+', '-', 'diff ', '@@', 'index '))
+            or l.strip().startswith((
+                'Signed-off-by:', 'Reviewed-by:', 'Acked-by:',
+                'Tested-by:', 'Cc:', 'Link:', 'Fixes:', 'Reported-by:',
+            ))
+            or not l.strip()
+            for l in lines
+        )
+        if is_code_or_quote:
+            result_parts.append(part)
+            continue
 
-    translated = translator.translate_email({"subject": "", "body": protected})
-    output = translated.get("body_cn", "") or protected
+        # 折叠标记不翻译
+        if part.strip().startswith('[...') and part.strip().endswith('...]'):
+            result_parts.append(part)
+            continue
 
-    for key, val in placeholders.items():
-        output = output.replace(key, val)
-        # 容错：翻译引擎可能改变大小写
-        lower_key = key.lower()
-        if lower_key != key and lower_key in output.lower():
-            output = re.sub(re.escape(key), lambda m: val, output, flags=re.IGNORECASE)
+        # 代码块不翻译
+        if part.strip().startswith('```'):
+            result_parts.append(part)
+            continue
 
-    return output
+        # ── 段落内部保护占位 ──
+        placeholders = {}
+        counter = [0]
+
+        def _ph(match):
+            key = "XYZPH%04dEND" % counter[0]
+            counter[0] += 1
+            placeholders[key] = match.group(0)
+            return key
+
+        protected = part
+        protected = re.sub(r"```[\s\S]*?```", _ph, protected)
+        protected = re.sub(r"\[\.\.\..*?行引用已省略\.\.\.\]", _ph, protected)
+        protected = re.sub(r"^>.*$", _ph, protected, flags=re.MULTILINE)
+        protected = re.sub(r"^[+-].*$", _ph, protected, flags=re.MULTILINE)
+        protected = re.sub(
+            r"^(Signed-off-by|Reviewed-by|Acked-by|Tested-by|Cc|Link):.*$",
+            _ph, protected, flags=re.MULTILINE,
+        )
+
+        # 如果保护后只剩占位符，不翻译
+        stripped = protected
+        for key in placeholders:
+            stripped = stripped.replace(key, "")
+        if not stripped.strip():
+            result_parts.append(part)
+            continue
+
+        # ── 翻译该段落 ──
+        translated = translator.translate_email({"subject": "", "body": protected})
+        output = translated.get("body_cn", "") or protected
+
+        # 还原占位符
+        for key, val in placeholders.items():
+            output = output.replace(key, val)
+            lower_key = key.lower()
+            if lower_key != key and lower_key in output.lower():
+                output = re.sub(re.escape(key), lambda m, v=val: v, output, flags=re.IGNORECASE)
+
+        result_parts.append(output)
+
+    return "".join(result_parts)
 
 
 # ─── 线程构建 ─────────────────────────────────────────────────────────────────

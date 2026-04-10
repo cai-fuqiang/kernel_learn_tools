@@ -361,7 +361,7 @@ index 7ff9965570e6..db5853761b1f 100644
 
 基础补丁的 Diffstat [1-11]：
 
- 包括/linux/rbtree_augmented.h |   26+
+包括/linux/rbtree_augmented.h |   26+
  包括/linux/sched.h |    7+-
  内核/sched/core.c |    2+
  内核/sched/debug.c |   48+-
@@ -445,7 +445,7 @@ is to directly expose the slice length as a request/hint.</pre></div>
 但未经测试。</pre></div><div class="pg-cell pg-orig"><pre>The very last patch implements this alternative using sched_attr::sched_runtime
 but is untested.</pre></div>
 <div class="pg-cell"><pre>基础补丁的 Diffstat [1-11]：</pre></div><div class="pg-cell pg-orig"><pre>Diffstat for the base patches [1-11]:</pre></div>
-<div class="pg-cell"><pre> 包括/linux/rbtree_augmented.h |   26+
+<div class="pg-cell"><pre>包括/linux/rbtree_augmented.h |   26+
  包括/linux/sched.h |    7+-
  内核/sched/core.c |    2+
  内核/sched/debug.c |   48+-
@@ -487,14 +487,14 @@ Peter Zijlstra 于 2023 年 5 月 31 日星期三下午 01:58:39 +0200 写道：
 和 Java 工作负载。  我们在五个系统上尝试了 SPEC CPU，以下是
 其中一台的编号（高核心数、两路 x86 机器）。
 
-    SPECrate2017 超额认购 2 倍（每个 CPU 两个测试副本）
+SPECrate2017 超额认购 2 倍（每个 CPU 两个测试副本）
 
-    基础：基于 v6.3 的内核
+基础：基于 v6.3 的内核
     EEVDF：5 月 31 日起的基础 + 补丁 [0]
 
-    性能比较：&gt;0（如果 EEVDF 获胜）
+性能比较：&gt;0（如果 EEVDF 获胜）
 
-    整数
+整数
      
      -0.5% 500.perlbench_r
      -6.6% 502.gcc_r
@@ -548,17 +548,17 @@ CPU。
 （下面有补丁）。  这些统计数据是在接近 26 场比赛中间的 1 分钟内采集的。
 分钟基准（502.gcc_r）。
 
-    基础：基于 v6.5-rc4 的内核
+基础：基于 v6.5-rc4 的内核
     EEVDF：基础+来自tip/sched/core的最新EEVDF补丁
 
-    schedstat 基础 EEVDF
+schedstat 基础 EEVDF
 
-    计划 1,243,911 3,947,251
+计划 1,243,911 3,947,251
 
-    勾选_检查_抢占 12,899,049
+勾选_检查_抢占 12,899,049
     勾选_抢占 1,022,998
 
-    检查截止日期 15,878,463
+检查截止日期 15,878,463
     更新截止日期 3,895,530
     preempt_deadline 3,751,580
 
@@ -593,10 +593,10 @@ diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 +
         /*
          * 当很多任务炸毁sched_period时；有可能
-* sched_slice() 报告异常大的结果（当许多任务被执行时）
+         * sched_slice() 报告异常大的结果（当许多任务被执行时）
 @@ -5005,6 +5007,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 
-        delta_exec = curr-&gt;sum_exec_runtime - curr-&gt;prev_sum_exec_runtime;
+delta_exec = curr-&gt;sum_exec_runtime - curr-&gt;prev_sum_exec_runtime;
         if (delta_exec &gt; Ideal_runtime) {
 +               schedstat_inc(rq_of(cfs_rq)-&gt;tick_preempts);
                 resched_curr(rq_of(cfs_rq));
@@ -613,7 +613,7 @@ diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 +       }
  }
 
- 静态无效
+静态无效
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
 索引 e93e006a942b..1bf12e271756 100644
 --- a/kernel/sched/sched.h
@@ -628,14 +628,14 @@ diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
 +       unsigned int            tick_preempts;
  #endif
 
- #ifdef CONFIG_CPU_IDLE
+#ifdef CONFIG_CPU_IDLE
 diff --git a/kernel/sched/stats.c b/kernel/sched/stats.c
 索引 857f837f52cb..7997b8538b72 100644
 --- a/kernel/sched/stats.c
 +++ b/kernel/sched/stats.c
 @@ -133,12 +133,13 @@ static int show_schedstat(struct seq_file *seq, void *v)
 
-                /* 特定于运行队列的统计信息 */
+/* 特定于运行队列的统计信息 */
                 seq_printf(seq,
 -                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu&quot;,
 +                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu %u %u&quot;,
@@ -647,7 +647,7 @@ diff --git a/kernel/sched/stats.c b/kernel/sched/stats.c
 +                   rq-&gt;rq_sched_info.run_delay, rq-&gt;rq_sched_info.pcount,
 +                   rq-&gt;tick_check_preempts, rq-&gt;tick_preempts);
 
-                seq_printf(seq, &quot;\n&quot;);
+seq_printf(seq, &quot;\n&quot;);
 
 
 eevdf 的 schedstat 补丁：
@@ -664,13 +664,13 @@ diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
         if ((s64)(se-&gt;vruntime - se-&gt;截止日期) &lt; 0)
                 返回；
 
-        /*
+/*
          * EEVDF：vd_i = ve_i + r_i / w_i
          */
 +       schedstat_inc(rq_of(cfs_rq)-&gt;update_deadline);
         se-&gt;截止日期 = se-&gt;vruntime + calc_delta_fair(se-&gt;slice, se);
 
-        /*
+/*
          * 任务已消耗其请求，重新安排。
          */
         如果（cfs_rq-&gt;nr_running &gt; 1）{
@@ -693,14 +693,14 @@ diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
 +       unsigned int            preempt_deadline;
  #endif
 
- #ifdef CONFIG_CPU_IDLE
+#ifdef CONFIG_CPU_IDLE
 diff --git a/kernel/sched/stats.c b/kernel/sched/stats.c
 索引 857f837f52cb..2a8bd742507d 100644
 --- a/kernel/sched/stats.c
 +++ b/kernel/sched/stats.c
 @@ -133,12 +133,14 @@ static int show_schedstat(struct seq_file *seq, void *v)
 
-                /* 特定于运行队列的统计信息 */
+/* 特定于运行队列的统计信息 */
                 seq_printf(seq,
 -                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu&quot;,
 +                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu %u %u %u&quot;,
@@ -713,7 +713,7 @@ diff --git a/kernel/sched/stats.c b/kernel/sched/stats.c
 +                   rq-&gt;check_deadline, rq-&gt;update_deadline,
 +                   rq-&gt;preempt_deadline);
 
-                seq_printf(seq, &quot;\n&quot;);
+seq_printf(seq, &quot;\n&quot;);
 
 
 [0] https://lore.kernel.org/all/20230531115839.089944915@infradead.org/</pre></div>
@@ -981,12 +981,12 @@ index 857f837f52cb..2a8bd742507d 100644
 其中一台的编号（高核心数、两路 x86 机器）。</pre></div><div class="pg-cell pg-orig"><pre>We&#x27;re seeing regressions from EEVDF with SPEC CPU, a database workload,
 and a Java workload.  We tried SPEC CPU on five systems, and here are
 numbers from one of them (high core count, two-socket x86 machine).</pre></div>
-<div class="pg-cell"><pre>    SPECrate2017 超额认购 2 倍（每个 CPU 两个测试副本）</pre></div><div class="pg-cell pg-orig"><pre>    SPECrate2017 oversubscribed by 2x (two copies of the test per CPU)</pre></div>
-<div class="pg-cell"><pre>    基础：基于 v6.3 的内核
+<div class="pg-cell"><pre>SPECrate2017 超额认购 2 倍（每个 CPU 两个测试副本）</pre></div><div class="pg-cell pg-orig"><pre>    SPECrate2017 oversubscribed by 2x (two copies of the test per CPU)</pre></div>
+<div class="pg-cell"><pre>基础：基于 v6.3 的内核
     EEVDF：5 月 31 日起的基础 + 补丁 [0]</pre></div><div class="pg-cell pg-orig"><pre>    Base: v6.3-based kernel
     EEVDF: Base + patches from May 31 [0]</pre></div>
-<div class="pg-cell"><pre>    性能比较：&gt;0（如果 EEVDF 获胜）</pre></div><div class="pg-cell pg-orig"><pre>    Performance comparison: &gt;0 if EEVDF wins</pre></div>
-<div class="pg-cell"><pre>    整数
+<div class="pg-cell"><pre>性能比较：&gt;0（如果 EEVDF 获胜）</pre></div><div class="pg-cell pg-orig"><pre>    Performance comparison: &gt;0 if EEVDF wins</pre></div>
+<div class="pg-cell"><pre>整数
      
      -0.5% 500.perlbench_r
      -6.6% 502.gcc_r
@@ -1079,15 +1079,15 @@ regression.</pre></div>
 with SPEC CPU.  Some schedstats showed that eevdf is tick-preemption happy
 (patches below).  These stats were taken over 1 minute near the middle of a ~26
 minute benchmark (502.gcc_r).</pre></div>
-<div class="pg-cell"><pre>    基础：基于 v6.5-rc4 的内核
+<div class="pg-cell"><pre>基础：基于 v6.5-rc4 的内核
     EEVDF：基础+来自tip/sched/core的最新EEVDF补丁</pre></div><div class="pg-cell pg-orig"><pre>    Base: v6.5-rc4-based kernel
     EEVDF: Base + the latest EEVDF patches from tip/sched/core</pre></div>
-<div class="pg-cell"><pre>    schedstat 基础 EEVDF</pre></div><div class="pg-cell pg-orig"><pre>    schedstat                     Base            EEVDF</pre></div>
-<div class="pg-cell"><pre>    计划 1,243,911 3,947,251</pre></div><div class="pg-cell pg-orig"><pre>    sched                    1,243,911        3,947,251</pre></div>
-<div class="pg-cell"><pre>    勾选_检查_抢占 12,899,049
+<div class="pg-cell"><pre>schedstat 基础 EEVDF</pre></div><div class="pg-cell pg-orig"><pre>    schedstat                     Base            EEVDF</pre></div>
+<div class="pg-cell"><pre>计划 1,243,911 3,947,251</pre></div><div class="pg-cell pg-orig"><pre>    sched                    1,243,911        3,947,251</pre></div>
+<div class="pg-cell"><pre>勾选_检查_抢占 12,899,049
     勾选_抢占 1,022,998</pre></div><div class="pg-cell pg-orig"><pre>    tick_check_preempts     12,899,049
     tick_preempts            1,022,998</pre></div>
-<div class="pg-cell"><pre>    检查截止日期 15,878,463
+<div class="pg-cell"><pre>检查截止日期 15,878,463
     更新截止日期 3,895,530
     preempt_deadline 3,751,580</pre></div><div class="pg-cell pg-orig"><pre>    check_deadline                           15,878,463
     update_deadline                           3,895,530
@@ -1138,14 +1138,14 @@ index b3e25be58e2b..fb5a35aa07ec 100644
 +
         /*
          * 当很多任务炸毁sched_period时；有可能
-* sched_slice() 报告异常大的结果（当许多任务被执行时）
+         * sched_slice() 报告异常大的结果（当许多任务被执行时）
 @@ -5005,6 +5007,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)</pre></div><div class="pg-cell pg-orig"><pre>+       schedstat_inc(rq_of(cfs_rq)-&gt;tick_check_preempts);
 +
         /*
          * When many tasks blow up the sched_period; it is possible that
          * sched_slice() reports unusually large results (when many tasks are
 @@ -5005,6 +5007,7 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)</pre></div>
-<div class="pg-cell"><pre>        delta_exec = curr-&gt;sum_exec_runtime - curr-&gt;prev_sum_exec_runtime;
+<div class="pg-cell"><pre>delta_exec = curr-&gt;sum_exec_runtime - curr-&gt;prev_sum_exec_runtime;
         if (delta_exec &gt; Ideal_runtime) {
 +               schedstat_inc(rq_of(cfs_rq)-&gt;tick_preempts);
                 resched_curr(rq_of(cfs_rq));
@@ -1173,7 +1173,7 @@ index b3e25be58e2b..fb5a35aa07ec 100644
                 resched_curr(rq_of(cfs_rq));
 +       }
  }</pre></div>
-<div class="pg-cell"><pre> 静态无效
+<div class="pg-cell"><pre>静态无效
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
 索引 e93e006a942b..1bf12e271756 100644
 --- a/kernel/sched/sched.h
@@ -1200,7 +1200,7 @@ index e93e006a942b..1bf12e271756 100644
 +       unsigned int            tick_check_preempts;
 +       unsigned int            tick_preempts;
  #endif</pre></div>
-<div class="pg-cell"><pre> #ifdef CONFIG_CPU_IDLE
+<div class="pg-cell"><pre>#ifdef CONFIG_CPU_IDLE
 diff --git a/kernel/sched/stats.c b/kernel/sched/stats.c
 索引 857f837f52cb..7997b8538b72 100644
 --- a/kernel/sched/stats.c
@@ -1211,7 +1211,7 @@ index 857f837f52cb..7997b8538b72 100644
 --- a/kernel/sched/stats.c
 +++ b/kernel/sched/stats.c
 @@ -133,12 +133,13 @@ static int show_schedstat(struct seq_file *seq, void *v)</pre></div>
-<div class="pg-cell"><pre>                /* 特定于运行队列的统计信息 */
+<div class="pg-cell"><pre>/* 特定于运行队列的统计信息 */
                 seq_printf(seq,
 -                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu&quot;,
 +                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu %u %u&quot;,
@@ -1232,7 +1232,7 @@ index 857f837f52cb..7997b8538b72 100644
 -                   rq-&gt;rq_sched_info.run_delay, rq-&gt;rq_sched_info.pcount);
 +                   rq-&gt;rq_sched_info.run_delay, rq-&gt;rq_sched_info.pcount,
 +                   rq-&gt;tick_check_preempts, rq-&gt;tick_preempts);</pre></div>
-<div class="pg-cell"><pre>                seq_printf(seq, &quot;\n&quot;);</pre></div><div class="pg-cell pg-orig"><pre>                seq_printf(seq, &quot;\n&quot;);</pre></div>
+<div class="pg-cell"><pre>seq_printf(seq, &quot;\n&quot;);</pre></div><div class="pg-cell pg-orig"><pre>                seq_printf(seq, &quot;\n&quot;);</pre></div>
 <div class="pg-cell"><pre>eevdf 的 schedstat 补丁：</pre></div><div class="pg-cell pg-orig"><pre>The schedstat patch for eevdf:</pre></div>
 <div class="pg-cell"><pre>diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 索引 cffec98724f3..675f4bbac471 100644
@@ -1255,7 +1255,7 @@ index cffec98724f3..675f4bbac471 100644
 +       schedstat_inc(rq_of(cfs_rq)-&gt;check_deadline);
         if ((s64)(se-&gt;vruntime - se-&gt;deadline) &lt; 0)
                 return;</pre></div>
-<div class="pg-cell"><pre>        /*
+<div class="pg-cell"><pre>/*
          * EEVDF：vd_i = ve_i + r_i / w_i
          */
 +       schedstat_inc(rq_of(cfs_rq)-&gt;update_deadline);
@@ -1264,7 +1264,7 @@ index cffec98724f3..675f4bbac471 100644
          */
 +       schedstat_inc(rq_of(cfs_rq)-&gt;update_deadline);
         se-&gt;deadline = se-&gt;vruntime + calc_delta_fair(se-&gt;slice, se);</pre></div>
-<div class="pg-cell"><pre>        /*
+<div class="pg-cell"><pre>/*
          * 任务已消耗其请求，重新安排。
          */
         如果（cfs_rq-&gt;nr_running &gt; 1）{
@@ -1307,7 +1307,7 @@ index 93c2dc80143f..c44b59556367 100644
 +       unsigned int            update_deadline;
 +       unsigned int            preempt_deadline;
  #endif</pre></div>
-<div class="pg-cell"><pre> #ifdef CONFIG_CPU_IDLE
+<div class="pg-cell"><pre>#ifdef CONFIG_CPU_IDLE
 diff --git a/kernel/sched/stats.c b/kernel/sched/stats.c
 索引 857f837f52cb..2a8bd742507d 100644
 --- a/kernel/sched/stats.c
@@ -1318,7 +1318,7 @@ index 857f837f52cb..2a8bd742507d 100644
 --- a/kernel/sched/stats.c
 +++ b/kernel/sched/stats.c
 @@ -133,12 +133,14 @@ static int show_schedstat(struct seq_file *seq, void *v)</pre></div>
-<div class="pg-cell"><pre>                /* 特定于运行队列的统计信息 */
+<div class="pg-cell"><pre>/* 特定于运行队列的统计信息 */
                 seq_printf(seq,
 -                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu&quot;,
 +                   &quot;cpu%d %u 0 %u %u %u %u %llu %llu %lu %u %u %u&quot;,
@@ -1341,7 +1341,7 @@ index 857f837f52cb..2a8bd742507d 100644
 +                   rq-&gt;rq_sched_info.run_delay, rq-&gt;rq_sched_info.pcount,
 +                   rq-&gt;check_deadline, rq-&gt;update_deadline,
 +                   rq-&gt;preempt_deadline);</pre></div>
-<div class="pg-cell"><pre>                seq_printf(seq, &quot;\n&quot;);</pre></div><div class="pg-cell pg-orig"><pre>                seq_printf(seq, &quot;\n&quot;);</pre></div>
+<div class="pg-cell"><pre>seq_printf(seq, &quot;\n&quot;);</pre></div><div class="pg-cell pg-orig"><pre>                seq_printf(seq, &quot;\n&quot;);</pre></div>
 <div class="pg-cell"><pre>[0] https://lore.kernel.org/all/20230531115839.089944915@infradead.org/</pre></div><div class="pg-cell pg-orig"><pre>[0] https://lore.kernel.org/all/20230531115839.089944915@infradead.org/</pre></div>
 </div>
 </details>
@@ -1921,7 +1921,7 @@ transposed (in the static state scenario).</pre></div>
 具体来说，该程序与以下参数一起使用
 EEVDF：
 
-  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 
+./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19
 
 并为 EVDF 列添加一个“-n”。
 
@@ -1985,7 +1985,7 @@ t=32 V=11 t=16 V=6
                                                         
 t=34 V=12 t=22 V=8
 &gt;A       |----&lt;                                          A             |----&lt;
-B |&lt; &gt;B |&lt;
+ B |&lt; &gt;B |&lt;
  C |----------------&lt; C |----------------&lt;
    |--------|-*--------|---------|---------|---- |--------*-|--------|--------|---------|----
                                                         
@@ -1993,7 +1993,7 @@ B |&lt; &gt;B |&lt;
 t=40V=14t=24V=9
  一个 |----&lt; 一个 |----&lt;
 &gt;B            |&lt;                                        &gt;B              |&lt;
- C |----------------&lt; C |----------------&lt;
+C |----------------&lt; C |----------------&lt;
    |---------|---*-----|---------|---------|---- |--------*|---------|---------|---------|----
                                                         
                                                         
@@ -2054,7 +2054,7 @@ BAaaBCccccccccBBBAaaBBBAaaBB BBAaaBBBAaaBBBAaaBCccccccccB
 
 也就是说，我确实有一个补丁可以解决其中的一些问题：
 
-  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=d7edbe431f31762e516f2730196f41322edcc621
+https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=d7edbe431f31762e516f2730196f41322edcc621
 
 尽管这样，这将允许请求时间较短的任务抢占
 RUN_TO_PARITY。
@@ -2066,7 +2066,7 @@ RUN_TO_PARITY。
 
 添加 4 个任务：
 
-  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 -n -e &quot;3,1024,2&quot; -e &quot;4,1024,2&quot; -e &quot;5,1024,2&quot; -e &quot;6,1024,2&quot;
+./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 -n -e &quot;3,1024,2&quot; -e &quot;4,1024,2&quot; -e &quot;5,1024,2&quot; -e &quot;6,1024,2&quot;
 
 t=92 V=16
  一个 |----&lt;
@@ -2287,7 +2287,7 @@ taken out: EVDF.</pre></div>
 <div class="pg-cell"><pre>具体来说，该程序与以下参数一起使用
 EEVDF：</pre></div><div class="pg-cell pg-orig"><pre>Specifically, the program was used with the following argument for
 EEVDF:</pre></div>
-<div class="pg-cell"><pre>  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 </pre></div><div class="pg-cell pg-orig"><pre>  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 </pre></div>
+<div class="pg-cell"><pre>./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19</pre></div><div class="pg-cell pg-orig"><pre>  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 </pre></div>
 <div class="pg-cell"><pre>并为 EVDF 列添加一个“-n”。</pre></div><div class="pg-cell pg-orig"><pre>and with an additional &#x27;-n&#x27; for the EVDF column.</pre></div>
 <div class="pg-cell"><pre>增强型EVDF</pre></div><div class="pg-cell pg-orig"><pre>EEVDF							EVDF</pre></div>
 <div class="pg-cell"><pre>d = 6 d = 6
@@ -2346,7 +2346,7 @@ t=32 V=11 t=16 V=6
                                                         
 t=34 V=12 t=22 V=8
 &gt;A       |----&lt;                                          A             |----&lt;
-B |&lt; &gt;B |&lt;
+ B |&lt; &gt;B |&lt;
  C |----------------&lt; C |----------------&lt;
    |--------|-*--------|---------|---------|---- |--------*-|--------|--------|---------|----
                                                         
@@ -2354,7 +2354,7 @@ B |&lt; &gt;B |&lt;
 t=40V=14t=24V=9
  一个 |----&lt; 一个 |----&lt;
 &gt;B            |&lt;                                        &gt;B              |&lt;
- C |----------------&lt; C |----------------&lt;
+C |----------------&lt; C |----------------&lt;
    |---------|---*-----|---------|---------|---- |--------*|---------|---------|---------|----
                                                         
                                                         
@@ -2521,7 +2521,7 @@ walk far ahead of V until t=36. Only when will we pick C. But this means
 that we&#x27;re firmly stuck with C for at least 11 time units. A newly
 placed task will be around V and will have no chance to preempt.</pre></div>
 <div class="pg-cell"><pre>也就是说，我确实有一个补丁可以解决其中的一些问题：</pre></div><div class="pg-cell pg-orig"><pre>That said, I do have me a patch to cure some of that:</pre></div>
-<div class="pg-cell"><pre>  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=d7edbe431f31762e516f2730196f41322edcc621</pre></div><div class="pg-cell pg-orig"><pre>  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=d7edbe431f31762e516f2730196f41322edcc621</pre></div>
+<div class="pg-cell"><pre>https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=d7edbe431f31762e516f2730196f41322edcc621</pre></div><div class="pg-cell pg-orig"><pre>  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=d7edbe431f31762e516f2730196f41322edcc621</pre></div>
 <div class="pg-cell"><pre>尽管这样，这将允许请求时间较短的任务抢占
 RUN_TO_PARITY。</pre></div><div class="pg-cell pg-orig"><pre>That would allow a task with a shorter request time to preempt in spite
 of RUN_TO_PARITY.</pre></div>
@@ -2533,7 +2533,7 @@ it we were to have many more tasks, you&#x27;ll see V gets closer and closer
 to C&#x27;s deadline and it will become harder and harder to place such that
 preemption becomes viable.</pre></div>
 <div class="pg-cell"><pre>添加 4 个任务：</pre></div><div class="pg-cell pg-orig"><pre>Adding 4 more tasks:</pre></div>
-<div class="pg-cell"><pre>  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 -n -e &quot;3,1024,2&quot; -e &quot;4,1024,2&quot; -e &quot;5,1024,2&quot; -e &quot;6,1024,2&quot;</pre></div><div class="pg-cell pg-orig"><pre>  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 -n -e &quot;3,1024,2&quot; -e &quot;4,1024,2&quot; -e &quot;5,1024,2&quot; -e &quot;6,1024,2&quot;</pre></div>
+<div class="pg-cell"><pre>./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 -n -e &quot;3,1024,2&quot; -e &quot;4,1024,2&quot; -e &quot;5,1024,2&quot; -e &quot;6,1024,2&quot;</pre></div><div class="pg-cell pg-orig"><pre>  ./eevdf -e &quot;0,1024,6&quot; -e &quot;1,1024,2&quot; -e &quot;2,1024,18&quot; -v 19 -n -e &quot;3,1024,2&quot; -e &quot;4,1024,2&quot; -e &quot;5,1024,2&quot; -e &quot;6,1024,2&quot;</pre></div>
 <div class="pg-cell"><pre>t=92 V=16
  一个 |----&lt;
  乙|&lt;
@@ -3017,7 +3017,7 @@ still trying our other workloads out.</pre></div>
 &gt; still trying our other workloads out.
 
 是的，这似乎暗示了你的关键路径上的一些东西（你应该
-追踪）在一次激活中的计算时间超过 3 毫秒。 
+追踪）在一次激活中的计算时间超过 3 毫秒。
 
 基本上这意味着 chrome 在这条关键路径上相当丰富。但它
 看来你知道这一点。
@@ -3075,7 +3075,7 @@ readily available from trace data.</pre></div>
 &gt; still trying our other workloads out.</pre></div><div class="pg-cell pg-orig"><pre>&gt; That said, this might not be beneficial for all workloads, and we are
 &gt; still trying our other workloads out.</pre></div>
 <div class="pg-cell"><pre>是的，这似乎暗示了你的关键路径上的一些东西（你应该
-追踪）在一次激活中的计算时间超过 3 毫秒。 </pre></div><div class="pg-cell pg-orig"><pre>Right, this seems to suggest something on your critical path (you should
+追踪）在一次激活中的计算时间超过 3 毫秒。</pre></div><div class="pg-cell pg-orig"><pre>Right, this seems to suggest something on your critical path (you should
 trace that) has more than 3ms of compute in a single activation. </pre></div>
 <div class="pg-cell"><pre>基本上这意味着 chrome 在这条关键路径上相当丰富。但它
 看来你知道这一点。</pre></div><div class="pg-cell pg-orig"><pre>Basically this means chrome is fairly fat on this critical path. But it
@@ -3318,7 +3318,7 @@ for at least 11 time units&quot;.</pre></div>
 
 遇到它要困难得多，但你仍然可以使用nice击中它。
 
- d_i = v_i + r_i / w_i
+d_i = v_i + r_i / w_i
 
 因此，对于非常轻的任务，有效的 v_deadline 会出现很多。
 
@@ -3367,7 +3367,7 @@ treatment, but still, it&#x27;s there.</pre></div>
 &gt; 
 &gt; [1] https://lore.kernel.org/lkml/20230915124354.416936110@noisy.programming.kicks-ass.net/</pre></div>
 <div class="pg-cell"><pre>遇到它要困难得多，但你仍然可以使用nice击中它。</pre></div><div class="pg-cell pg-orig"><pre>Much harder to run into it, but you can still hit it using nice.</pre></div>
-<div class="pg-cell"><pre> d_i = v_i + r_i / w_i</pre></div><div class="pg-cell pg-orig"><pre> d_i = v_i + r_i / w_i</pre></div>
+<div class="pg-cell"><pre>d_i = v_i + r_i / w_i</pre></div><div class="pg-cell pg-orig"><pre> d_i = v_i + r_i / w_i</pre></div>
 <div class="pg-cell"><pre>因此，对于非常轻的任务，有效的 v_deadline 会出现很多。</pre></div><div class="pg-cell pg-orig"><pre>So for very light tasks, the effective v_deadline goes out lots.</pre></div>
 <div class="pg-cell"><pre>正如我昨天写的，通过将调度（远）延迟到 0 滞后，你
 有效地打开拒绝服务窗口，因为新任务是
@@ -3666,9 +3666,9 @@ it might eat your pet and set your granny on fire.</pre></div>
 &gt;  		V += es[i].weight * es[i].vruntime;
 &gt; +		R += es[i].request;
 
-				* 1024
+* 1024
 
-另外，平均值似乎太大了，一个大的值太容易提升它。 
+另外，平均值似乎太大了，一个大的值太容易提升它。
 
 需要想出更好的东西：/
 
@@ -3702,8 +3702,8 @@ Need to come up with something better :/
 &gt; +		R += es[i].request;</pre></div><div class="pg-cell pg-orig"><pre>[...19 行引用已省略...]
 &gt;  		V += es[i].weight * es[i].vruntime;
 &gt; +		R += es[i].request;</pre></div>
-<div class="pg-cell"><pre>				* 1024</pre></div><div class="pg-cell pg-orig"><pre>				* 1024</pre></div>
-<div class="pg-cell"><pre>另外，平均值似乎太大了，一个大的值太容易提升它。 </pre></div><div class="pg-cell pg-orig"><pre>Also, average seems too much, one large value lifts it too easily. </pre></div>
+<div class="pg-cell"><pre>* 1024</pre></div><div class="pg-cell pg-orig"><pre>				* 1024</pre></div>
+<div class="pg-cell"><pre>另外，平均值似乎太大了，一个大的值太容易提升它。</pre></div><div class="pg-cell pg-orig"><pre>Also, average seems too much, one large value lifts it too easily. </pre></div>
 <div class="pg-cell"><pre>需要想出更好的东西：/</pre></div><div class="pg-cell pg-orig"><pre>Need to come up with something better :/</pre></div>
 <div class="pg-cell"><pre>[...25 行引用已省略...]</pre></div><div class="pg-cell pg-orig"><pre>[...25 行引用已省略...]</pre></div>
 </div>
@@ -3739,7 +3739,8 @@ Need to come up with something better :/
 在这种情况下，平均值会及时向后移动——
 理想的调度程序当然永远不会这样做。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -3784,7 +3785,8 @@ behaviour, which isn&#x27;t strictly conformant.</pre></div>
 理想的调度程序当然永远不会这样做。</pre></div><div class="pg-cell pg-orig"><pre>Specifically consider adding a task with a vruntime left of center, in
 this case the average will move backwards in time -- something the
 ideal scheduler would of course never do.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -3806,31 +3808,31 @@ ideal scheduler would of course never do.</pre></div>
 +	struct sched_entity *last, *first;
  	struct rq *rq = cpu_rq(cpu);
 -	struct sched_entity *last;
- 	unsigned long flags;
+ 	无符号长标志；
  
  #ifdef CONFIG_FAIR_GROUP_SCHED
 @@ -643,26 +642,25 @@ void print_cfs_rq(struct seq_file *m, in
  			SPLIT_NS(cfs_rq-&gt;exec_clock));
  
- 	raw_spin_rq_lock_irqsave(rq, flags);
+ 	raw_spin_rq_lock_irqsave(rq, 标志);
 -	if (rb_first_cached(&amp;cfs_rq-&gt;tasks_timeline))
 -		MIN_vruntime = (__pick_first_entity(cfs_rq))-&gt;vruntime;
 +	first = __pick_first_entity(cfs_rq);
 +	if (first)
 +		left_vruntime = first-&gt;vruntime;
- 	last = __pick_last_entity(cfs_rq);
- 	if (last)
+ 	最后 = __pick_last_entity(cfs_rq);
+ 	如果（最后）
 -		max_vruntime = last-&gt;vruntime;
 +		right_vruntime = last-&gt;vruntime;
  	min_vruntime = cfs_rq-&gt;min_vruntime;
 -	rq0_min_vruntime = cpu_rq(0)-&gt;cfs.min_vruntime;
- 	raw_spin_rq_unlock_irqrestore(rq, flags);
+ 	raw_spin_rq_unlock_irqrestore(rq, 标志);
 -	SEQ_printf(m, &quot;  .%-30s: %Ld.%06ld\n&quot;, &quot;MIN_vruntime&quot;,
 -			SPLIT_NS(MIN_vruntime));
 +
 +	SEQ_printf(m, &quot;  .%-30s: %Ld.%06ld\n&quot;, &quot;left_vruntime&quot;,
 +			SPLIT_NS(left_vruntime));
- 	SEQ_printf(m, &quot;  .%-30s: %Ld.%06ld\n&quot;, &quot;min_vruntime&quot;,
+ 	SEQ_printf(m, &quot; .%-30s: %Ld.%06ld\n&quot;, &quot;min_vruntime&quot;,
  			SPLIT_NS(min_vruntime));
 -	SEQ_printf(m, &quot;  .%-30s: %Ld.%06ld\n&quot;, &quot;max_vruntime&quot;,
 -			SPLIT_NS(max_vruntime));
@@ -3846,13 +3848,13 @@ ideal scheduler would of course never do.</pre></div>
 +			SPLIT_NS(right_vruntime));
 +	spread = right_vruntime - left_vruntime;
 +	SEQ_printf(m, &quot;  .%-30s: %Ld.%06ld\n&quot;, &quot;spread&quot;, SPLIT_NS(spread));
- 	SEQ_printf(m, &quot;  .%-30s: %d\n&quot;, &quot;nr_spread_over&quot;,
+ 	SEQ_printf(m, &quot; .%-30s: %d\n&quot;, &quot;nr_spread_over&quot;,
  			cfs_rq-&gt;nr_spread_over);
- 	SEQ_printf(m, &quot;  .%-30s: %d\n&quot;, &quot;nr_running&quot;, cfs_rq-&gt;nr_running);
+ 	SEQ_printf(m, &quot; .%-30s: %d\n&quot;, &quot;nr_running&quot;, cfs_rq-&gt;nr_running);
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -601,9 +601,134 @@ static inline bool entity_before(const s
- 	return (s64)(a-&gt;vruntime - b-&gt;vruntime) &lt; 0;
+@@ -601,9 +601,134 @@ 静态内联 boolEntity_before(const s
+ 	返回 (s64)(a-&gt;vruntime - b-&gt;vruntime) &lt; 0;
  }
  
 +static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -3860,8 +3862,8 @@ ideal scheduler would of course never do.</pre></div>
 +	return (s64)(se-&gt;vruntime - cfs_rq-&gt;min_vruntime);
 +}
 +
- #define __node_2_se(node) \
- 	rb_entry((node), struct sched_entity, run_node)
+ #define __node_2_se(节点) \
+ 	rb_entry((节点), 结构 sched_entity, run_node)
  
 +/*
 + * Compute virtual time from the per-task service numbers:
@@ -3983,37 +3985,37 @@ ideal scheduler would of course never do.</pre></div>
 +	return min_vruntime;
 +}
 +
- static void update_min_vruntime(struct cfs_rq *cfs_rq)
+ 静态无效 update_min_vruntime（结构 cfs_rq *cfs_rq）
  {
  	struct sched_entity *curr = cfs_rq-&gt;curr;
 @@ -629,7 +754,7 @@ static void update_min_vruntime(struct c
  
- 	/* ensure we never gain time by being placed backwards. */
+ 	/* 确保我们永远不会因为被排在后面而赢得时间。 */
  	u64_u32_store(cfs_rq-&gt;min_vruntime,
 -		      max_vruntime(cfs_rq-&gt;min_vruntime, vruntime));
 +		      __update_min_vruntime(cfs_rq, vruntime));
  }
  
- static inline bool __entity_less(struct rb_node *a, const struct rb_node *b)
-@@ -642,12 +767,14 @@ static inline bool __entity_less(struct
+ 静态内联 bool __entity_less(struct rb_node *a, const struct rb_node *b)
+@@ -642,12 +767,14 @@ 静态内联 bool __entity_less(struct
   */
- static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 静态无效__enqueue_entity（结构cfs_rq * cfs_rq，结构sched_entity * se）
  {
 +	avg_vruntime_add(cfs_rq, se);
  	rb_add_cached(&amp;se-&gt;run_node, &amp;cfs_rq-&gt;tasks_timeline, __entity_less);
  }
  
- static void __dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 静态无效 __dequeue_entity（结构 cfs_rq *cfs_rq，结构 sched_entity *se）
  {
  	rb_erase_cached(&amp;se-&gt;run_node, &amp;cfs_rq-&gt;tasks_timeline);
 +	avg_vruntime_sub(cfs_rq, se);
  }
  
- struct sched_entity *__pick_first_entity(struct cfs_rq *cfs_rq)
+ 结构 sched_entity *__pick_first_entity(结构 cfs_rq *cfs_rq)
 @@ -3379,6 +3506,8 @@ static void reweight_entity(struct cfs_r
- 		/* commit outstanding execution time */
+ 		/* 提交未完成的执行时间 */
  		if (cfs_rq-&gt;curr == se)
- 			update_curr(cfs_rq);
+update_curr(cfs_rq);
 +		else
 +			avg_vruntime_sub(cfs_rq, se);
  		update_load_sub(&amp;cfs_rq-&gt;load, se-&gt;load.weight);
@@ -4035,15 +4037,15 @@ ideal scheduler would of course never do.</pre></div>
  void reweight_task(struct task_struct *p, int prio)
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -554,6 +554,9 @@ struct cfs_rq {
- 	unsigned int		idle_nr_running;   /* SCHED_IDLE */
- 	unsigned int		idle_h_nr_running; /* SCHED_IDLE */
+@@ -554,6 +554,9 @@ 结构 cfs_rq {
+ 	无符号 int 空闲_nr_运行；   /* SCHED_IDLE */
+ 	无符号整数idle_h_nr_running； /* SCHED_IDLE */
  
 +	s64			avg_vruntime;
 +	u64			avg_load;
 +
- 	u64			exec_clock;
- 	u64			min_vruntime;
+ 	u64 执行时钟；
+ 	u64 min_vruntime；
  #ifdef C</pre>
   </details>
 </div>
@@ -4114,10 +4116,10 @@ isn&#x27;t cfs_rq-&gt;avg_load similar to scale_load_down(cfs_rq-&gt;load.weight
 
 是的，类似，但在两个方面不完全相同：
 
- - 由于操作顺序有时会偏离一个条目 - 这
+- 由于操作顺序有时会偏离一个条目 - 这
    可能是可以修复的。
 
- - 它在添加后按比例缩小，而这则按比例缩小
+- 它在添加后按比例缩小，而这则按比例缩小
    在添加之前向下，特别是对于多个低权重条目，这使得
    显着差异。</pre></div>
     </div>
@@ -4151,10 +4153,10 @@ Similar, yes, but not quite the same in two ways:
 &gt; 
 &gt; &gt; +}</pre></div>
 <div class="pg-cell"><pre>是的，类似，但在两个方面不完全相同：</pre></div><div class="pg-cell pg-orig"><pre>Similar, yes, but not quite the same in two ways:</pre></div>
-<div class="pg-cell"><pre> - 由于操作顺序有时会偏离一个条目 - 这
+<div class="pg-cell"><pre>- 由于操作顺序有时会偏离一个条目 - 这
    可能是可以修复的。</pre></div><div class="pg-cell pg-orig"><pre> - it&#x27;s sometimes off by one entry due to ordering of operations -- this
    is probably fixable.</pre></div>
-<div class="pg-cell"><pre> - 它在添加后按比例缩小，而这则按比例缩小
+<div class="pg-cell"><pre>- 它在添加后按比例缩小，而这则按比例缩小
    在添加之前向下，特别是对于多个低权重条目，这使得
    显着差异。</pre></div><div class="pg-cell pg-orig"><pre> - it does the scale down after addition, whereas this does the scale
    down before addition, esp for multiple low weight entries this makes
@@ -4230,7 +4232,7 @@ Ah yes, we are still using the the scaled down value for computation
 
 由于理想服务时间 S 是特定于任务的，因此应该是：
 
-	lag_i = S_i - s_i = w_i * (V - v_i)
+lag_i = S_i - s_i = w_i * (V - v_i)
 
 [...36 行引用已省略...]
 &gt; + *                    v0 := cfs_rq-&gt;min_vruntime
@@ -4279,7 +4281,7 @@ Thanks &amp; Best,
 &gt; + *
 &gt; + *   lag_i = S - s_i = w_i * (V - v_i)</pre></div>
 <div class="pg-cell"><pre>由于理想服务时间 S 是特定于任务的，因此应该是：</pre></div><div class="pg-cell pg-orig"><pre>Since the ideal service time S is task-specific, should this be:</pre></div>
-<div class="pg-cell"><pre>	lag_i = S_i - s_i = w_i * (V - v_i)</pre></div><div class="pg-cell pg-orig"><pre>	lag_i = S_i - s_i = w_i * (V - v_i)</pre></div>
+<div class="pg-cell"><pre>lag_i = S_i - s_i = w_i * (V - v_i)</pre></div><div class="pg-cell pg-orig"><pre>	lag_i = S_i - s_i = w_i * (V - v_i)</pre></div>
 <div class="pg-cell"><pre>[...36 行引用已省略...]
 &gt; + *                    v0 := cfs_rq-&gt;min_vruntime
 &gt; + * \Sum (v_i - v0) * w_i := cfs_rq-&gt;avg_vruntime</pre></div><div class="pg-cell pg-orig"><pre>[...36 行引用已省略...]
@@ -4494,7 +4496,7 @@ measured in real time (V*w_i).</pre></div>
 
 显然我应该在回复之前醒来;-)
 
-  V = S/W，因此 dV = dt/W 且 dS = dt
+V = S/W，因此 dV = dt/W 且 dS = dt
 
 无论如何，重点是 V 和 S 在所有任务中都是相同的，
 所有任务以无限小的时间增量并行执行。
@@ -4533,7 +4535,7 @@ and lag is the deviation from the ideal.</pre></div>
 &gt; IIUC it&#x27;s V progresses at dt/W and is same for all tasks, not S which is
 &gt; measured in real time (V*w_i).</pre></div>
 <div class="pg-cell"><pre>显然我应该在回复之前醒来;-)</pre></div><div class="pg-cell pg-orig"><pre>Clearly I should wake up before replying ;-)</pre></div>
-<div class="pg-cell"><pre>  V = S/W，因此 dV = dt/W 且 dS = dt</pre></div><div class="pg-cell pg-orig"><pre>  V = S/W, so dV = dt/W and dS = dt</pre></div>
+<div class="pg-cell"><pre>V = S/W，因此 dV = dt/W 且 dS = dt</pre></div><div class="pg-cell pg-orig"><pre>  V = S/W, so dV = dt/W and dS = dt</pre></div>
 <div class="pg-cell"><pre>无论如何，重点是 V 和 S 在所有任务中都是相同的，
 所有任务以无限小的时间增量并行执行。</pre></div><div class="pg-cell pg-orig"><pre>Anyway, the point is that both V and S are the same across all tasks,
 all tasks execute in parallel with infinitely small time increments.</pre></div>
@@ -4615,7 +4617,8 @@ after.</pre></div>
 近似值。以0滞后点为插入起点
 新任务。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -4636,7 +4639,8 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 新任务。</pre></div><div class="pg-cell pg-orig"><pre>With the introduction of avg_vruntime() there is no need to use worse
 approximations. Take the 0-lag point as starting point for inserting
 new tasks.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -4648,7 +4652,7 @@ new tasks.</pre></div>
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -906,16 +906,6 @@ static u64 sched_slice(struct cfs_rq *cf
- 	return slice;
+ 	返回切片；
  }
  
 -/*
@@ -4661,12 +4665,12 @@ new tasks.</pre></div>
 -	return calc_delta_fair(sched_slice(cfs_rq, se), se);
 -}
 -
- #include &quot;pelt.h&quot;
+ #include“毛皮.h”
  #ifdef CONFIG_SMP
  
-@@ -4862,16 +4852,7 @@ static inline bool entity_is_long_sleepe
- static void
- place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
+@@ -4862,16 +4852,7 @@静态内联布尔entity_is_long_sleepe
+ 静态无效
+ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int 初始值)
  {
 -	u64 vruntime = cfs_rq-&gt;min_vruntime;
 -
@@ -4680,12 +4684,12 @@ new tasks.</pre></div>
 -		vruntime += sched_vslice(cfs_rq, se);
 +	u64 vruntime = avg_vruntime(cfs_rq);
  
- 	/* sleeps up to a single latency don&#x27;t count. */
- 	if (!initial) {
+ 	/* 睡眠最多一个延迟不计算在内。 */
+ 	如果（！初始）{
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
 @@ -7,12 +7,6 @@
- SCHED_FEAT(GENTLE_FAIR_SLEEPERS, true)
+ SCHED_FEAT（GENTLE_FAIR_SLEEPERS，真）
  
  /*
 - * Place new tasks ahead so that they do not starve already running
@@ -4694,9 +4698,9 @@ new tasks.</pre></div>
 -SCHED_FEAT(START_DEBIT, true)
 -
 -/*
-  * Prefer to schedule the task we woke last (assuming it failed
-  * wakeup-preemption), since its likely going to consume data we
-  * touched, increases cache locality.</pre>
+  * 更愿意安排我们最后醒来的任务（假设它失败了）
+  *唤醒抢占），因为它可能会消耗我们的数据
+  * 触及，增加缓存局部性。</pre>
   </details>
 </div>
 
@@ -5006,9 +5010,9 @@ Peter Zijlstra 于 2023 年 5 月 31 日星期三下午 01:58:42 +0200 写道：
 我在某些主机上运行 6.13，在某些情况下，系统
 遇到一些 OOM，我看到以下堆栈：
 
-          警告：CPU：29 PID：593474，位于 kernel/sched/fair.c:5250 place_entity+0x199/0x1b0
+警告：CPU：29 PID：593474，位于 kernel/sched/fair.c:5250 place_entity+0x199/0x1b0
 
-           调用轨迹：
+调用轨迹：
             &lt;任务&gt;
             ？ __警告+0xd1/0x1b0
             ？地点实体+0x199/0x1b0
@@ -5121,8 +5125,8 @@ Thanks
 <div class="pg-cell"><pre>我在某些主机上运行 6.13，在某些情况下，系统
 遇到一些 OOM，我看到以下堆栈：</pre></div><div class="pg-cell pg-orig"><pre>I have 6.13 running on some hosts, and in some cases, where the system
 is getting some OOMs, I see the following stack:</pre></div>
-<div class="pg-cell"><pre>          警告：CPU：29 PID：593474，位于 kernel/sched/fair.c:5250 place_entity+0x199/0x1b0</pre></div><div class="pg-cell pg-orig"><pre>          WARNING: CPU: 29 PID: 593474 at kernel/sched/fair.c:5250 place_entity+0x199/0x1b0</pre></div>
-<div class="pg-cell"><pre>           调用轨迹：
+<div class="pg-cell"><pre>警告：CPU：29 PID：593474，位于 kernel/sched/fair.c:5250 place_entity+0x199/0x1b0</pre></div><div class="pg-cell pg-orig"><pre>          WARNING: CPU: 29 PID: 593474 at kernel/sched/fair.c:5250 place_entity+0x199/0x1b0</pre></div>
+<div class="pg-cell"><pre>调用轨迹：
             &lt;任务&gt;
             ？ __警告+0xd1/0x1b0
             ？地点实体+0x199/0x1b0
@@ -5232,7 +5236,8 @@ last week.</pre></div>
 &gt; frequent enough. I have 1K hosts with 6.13 and I saw it 5 times in the
 &gt; last week.
 
-奇怪。您介意尝试使用下面的补丁吗？</pre></div>
+诡异的。您介意尝试使用下面的补丁吗？
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -5364,7 +5369,8 @@ Weird. Would you mind trying with the below patch on top?</pre></div>
 &gt; Anyway, I don&#x27;t have a reproducer and this problem doesn&#x27;t happen
 &gt; frequent enough. I have 1K hosts with 6.13 and I saw it 5 times in the
 &gt; last week.</pre></div>
-<div class="pg-cell"><pre>奇怪。您介意尝试使用下面的补丁吗？</pre></div><div class="pg-cell pg-orig"><pre>Weird. Would you mind trying with the below patch on top?</pre></div>
+<div class="pg-cell"><pre>诡异的。您介意尝试使用下面的补丁吗？
+`</pre></div><div class="pg-cell pg-orig"><pre>Weird. Would you mind trying with the below patch on top?</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -5373,36 +5379,36 @@ Subject: sched/fair: Adhere to place_entity() constraints
 From: Peter Zijlstra &lt;peterz@infradead.org&gt;
 Date: Tue, 28 Jan 2025 15:39:49 +0100
 
-Mike reports that commit 6d71a9c61604 (&quot;sched/fair: Fix EEVDF entity
-placement bug causing scheduling lag&quot;) relies on commit 4423af84b297
-(&quot;sched/fair: optimize the PLACE_LAG when se-&gt;vlag is zero&quot;) to not
-trip a WARN in place_entity().
+Mike 报告提交 6d71a9c61604（“sched/fair：修复 EEVDF 实体
+导致调度滞后的放置错误”）依赖于提交 4423af84b297
+（“sched/fair：当se-&gt;vlag为零时优化PLACE_LAG”）不
+place_entity() 中发出警告。
 
-What happens is that the lag of the very last entity is 0 per
-definition -- the average of one element matches the value of that
-element. Therefore place_entity() will match the condition skipping
-the lag adjustment:
+发生的情况是最后一个实体的滞后为 0 每
+定义——一个元素的平均值与该元素的值相匹配
+元素。因此 place_entity() 将匹配条件跳过
+滞后调整：
 
-  if (sched_feat(PLACE_LAG) &amp;&amp; cfs_rq-&gt;nr_queued &amp;&amp; se-&gt;vlag) {
+if (sched_feat(PLACE_LAG) &amp;&amp; cfs_rq-&gt;nr_queued &amp;&amp; se-&gt;vlag) {
 
-Without the &#x27;se-&gt;vlag&#x27; condition -- it will attempt to adjust the zero
-lag even though we&#x27;re inserting into an empty tree.
+如果没有“se-&gt;vlag”条件——它将尝试调整零
+即使我们插入到一棵空树中，也会出现滞后。
 
-Notably, we should have failed the &#x27;cfs_rq-&gt;nr_queued&#x27; condition, but
-don&#x27;t because they didn&#x27;t get updated.
+值得注意的是，我们应该未能满足“cfs_rq-&gt;nr_queued”条件，但是
+不要因为他们没有更新。
 
-Additionally, move update_load_add() after placement() as is
-consistent with other place_entity() users -- this change is
-non-functional, place_entity() does not use cfs_rq-&gt;load.
+另外，按原样将 update_load_add() 移到placement() 之后
+与其他 place_entity() 用户一致——此更改是
+非功能性，place_entity() 不使用 cfs_rq-&gt;load。
 
-Fixes: 6d71a9c61604 (&quot;sched/fair: Fix EEVDF entity placement bug causing scheduling lag&quot;)
-Reported-by: Mike Galbraith &lt;efault@gmx.de&gt;
+修复：6d71a9c61604（“sched/fair：修复 EEVDF 实体放置错误导致调度滞后”）
+报告人：Mike Galbraith &lt;efault@gmx.de&gt;
 Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
 Cc: stable@vger.kernel.org
 Link: https://lkml.kernel.org/r/20250128143949.GD7145@noisy.programming.kicks-ass.net
 ---
- kernel/sched/fair.c |    4 +++-
- 1 file changed, 3 insertions(+), 1 deletion(-)
+ 内核/sched/fair.c |    4 +++-
+ 1 个文件更改、3 个插入(+)、1 个删除(-)
 
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
@@ -5411,22 +5417,22 @@ Link: https://lkml.kernel.org/r/20250128143949.GD7145@noisy.programming.kicks-as
  		se-&gt;deadline -= se-&gt;vruntime;
  		se-&gt;rel_deadline = 1;
 +		cfs_rq-&gt;nr_queued--;
- 		if (!curr)
+ 		如果 (!curr)
  			__dequeue_entity(cfs_rq, se);
  		update_load_sub(&amp;cfs_rq-&gt;load, se-&gt;load.weight);
 @@ -3807,10 +3808,11 @@ static void reweight_entity(struct cfs_r
  
  	enqueue_load_avg(cfs_rq, se);
- 	if (se-&gt;on_rq) {
+ 	如果（se-&gt;on_rq）{
 -		update_load_add(&amp;cfs_rq-&gt;load, se-&gt;load.weight);
  		place_entity(cfs_rq, se, 0);
 +		update_load_add(&amp;cfs_rq-&gt;load, se-&gt;load.weight);
- 		if (!curr)
+ 		如果 (!curr)
  			__enqueue_entity(cfs_rq, se);
 +		cfs_rq-&gt;nr_queued++;
  
  		/*
- 		 * The entity&#x27;s vruntime has been adjusted, so let&#x27;s check</pre>
+ 		 * 实体的vruntime已经调整了，我们来检查一下</pre>
   </details>
 </div>
 <div class="replies"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
@@ -5903,7 +5909,7 @@ much better&quot; nonsense.</pre></div>
 
 是的，所以我确实有这个：
 
-  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=344944e06f11da25b49328825ed15fedd63036d3
+https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=344944e06f11da25b49328825ed15fedd63036d3
 
 这使得任务可以消除延迟——所有的问题都可以解决。
 睡觉时间有。它可靠地解决了上述问题。然而，它也
@@ -5942,7 +5948,7 @@ It is so far the least horrible of the things I&#x27;ve tried.</pre></div>
 &gt; seeing more &quot;don&#x27;t go to sleep, just spin, the latency numbers are so
 &gt; much better&quot; nonsense.</pre></div>
 <div class="pg-cell"><pre>是的，所以我确实有这个：</pre></div><div class="pg-cell pg-orig"><pre>Right, so I do have this:</pre></div>
-<div class="pg-cell"><pre>  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=344944e06f11da25b49328825ed15fedd63036d3</pre></div><div class="pg-cell pg-orig"><pre>  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=344944e06f11da25b49328825ed15fedd63036d3</pre></div>
+<div class="pg-cell"><pre>https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=344944e06f11da25b49328825ed15fedd63036d3</pre></div><div class="pg-cell pg-orig"><pre>  https://git.kernel.org/pub/scm/linux/kernel/git/peterz/queue.git/commit/?h=sched/eevdf&amp;id=344944e06f11da25b49328825ed15fedd63036d3</pre></div>
 <div class="pg-cell"><pre>这使得任务可以消除延迟——所有的问题都可以解决。
 睡觉时间有。它可靠地解决了上述问题。然而，它也
 压抑了一堆其他的东西。从来没有免费的午餐等等。</pre></div><div class="pg-cell pg-orig"><pre>That allows tasks to sleep away the lag -- with all the gnarly bits that
@@ -5978,7 +5984,8 @@ depresses a bunch of other stuff. Never a free lunch etc.</pre></div>
 所以下面是我在概念上更喜欢的代码——除了我讨厌代码，
 它也不像上面链接的那样有效。
 
-（迈克，这和你之前看到的不一样——它已经被“改进”了）</pre></div>
+（迈克，这和你之前看到的不一样——它已经被“改进”了）
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -6026,32 +6033,33 @@ nor does it work as well as the one linked above.
 <div class="pg-cell"><pre>所以下面是我在概念上更喜欢的代码——除了我讨厌代码，
 它也不像上面链接的那样有效。</pre></div><div class="pg-cell pg-orig"><pre>So the below is one I conceptually like more -- except I hate the code,
 nor does it work as well as the one linked above.</pre></div>
-<div class="pg-cell"><pre>（迈克，这和你之前看到的不一样——它已经被“改进”了）</pre></div><div class="pg-cell pg-orig"><pre>(Mike, this isn&#x27;t the same one you saw before -- it&#x27;s been &#x27;improved&#x27;)</pre></div>
+<div class="pg-cell"><pre>（迈克，这和你之前看到的不一样——它已经被“改进”了）
+`</pre></div><div class="pg-cell pg-orig"><pre>(Mike, this isn&#x27;t the same one you saw before -- it&#x27;s been &#x27;improved&#x27;)</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
     <pre class="diff">---
 
 diff --git a/include/linux/sched.h b/include/linux/sched.h
-index 29daece54a74..7f17295931de 100644
+索引 29daece54a74..7f17295931de 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
 @@ -895,6 +895,7 @@ struct task_struct {
- 	unsigned			sched_reset_on_fork:1;
- 	unsigned			sched_contributes_to_load:1;
- 	unsigned			sched_migrated:1;
+ 	无符号 sched_reset_on_fork:1;
+ 	无符号 sched_contributes_to_load:1;
+ 	无符号 sched_migerated:1;
 +	unsigned			sched_delayed:1;
  
- 	/* Force alignment to the next boundary: */
- 	unsigned			:0;
+ 	/* 强制对齐到下一个边界: */
+ 	无符号：0；
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 7771a4d68280..38b2e0488a38 100644
+索引 7771a4d68280..38b2e0488a38 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -3833,12 +3833,21 @@ static int ttwu_runnable(struct task_struct *p, int wake_flags)
+@@ -3833,12 +3833,21 @@ static int ttwu_runnable(struct task_struct *p, intwake_flags)
  
  	rq = __task_rq_lock(p, &amp;rf);
- 	if (task_on_rq_queued(p)) {
+ 	如果（task_on_rq_queued（p））{
 +		update_rq_clock(rq);
 +		if (unlikely(p-&gt;sched_delayed)) {
 +			p-&gt;sched_delayed = 0;
@@ -6064,15 +6072,15 @@ index 7771a4d68280..38b2e0488a38 100644
 +		}
  		if (!task_on_cpu(rq, p)) {
  			/*
- 			 * When on_rq &amp;&amp; !on_cpu the task is preempted, see if
- 			 * it should preempt the task that is current now.
+ 			 * 当on_rq &amp;&amp; !on_cpu时任务被抢占，看看是否
+ 			 * 它应该抢占当前当前的任务。
  			 */
 -			update_rq_clock(rq);
- 			wakeup_preempt(rq, p, wake_flags);
+ 			wakeup_preempt(rq, p,wake_flags);
  		}
  		ttwu_do_wakeup(p);
 @@ -6520,6 +6529,16 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
- # define SM_MASK_PREEMPT	SM_PREEMPT
+ # 定义 SM_MASK_PREEMPT SM_PREEMPT
  #endif
  
 +static void __deschedule_task(struct rq *rq, struct task_struct *p)
@@ -6086,7 +6094,7 @@ index 7771a4d68280..38b2e0488a38 100644
 +}
 +
  /*
-  * __schedule() is the main scheduler function.
+  * __schedule() 是主要的调度函数。
   *
 @@ -6604,6 +6623,8 @@ static void __sched notrace __schedule(unsigned int sched_mode)
  
@@ -6095,11 +6103,11 @@ index 7771a4d68280..38b2e0488a38 100644
 +	WARN_ON_ONCE(prev-&gt;sched_delayed);
 +
  	/*
- 	 * We must load prev-&gt;state once (task_struct::state is volatile), such
- 	 * that we form a control dependency vs deactivate_task() below.
+ 	 * 我们必须加载一次prev-&gt;state（task_struct::state是易失性的），比如
+ 	 * 我们在下面形成了与 deactivate_task() 的控制依赖关系。
 @@ -6632,17 +6653,39 @@ static void __sched notrace __schedule(unsigned int sched_mode)
  			 *
- 			 * After this, schedule() must not care about p-&gt;state any more.
+ 			 * 此后，schedule() 不能再关心 p-&gt;state 了。
  			 */
 -			deactivate_task(rq, prev, DEQUEUE_SLEEP | DEQUEUE_NOCLOCK);
 -
@@ -6141,15 +6149,15 @@ index 7771a4d68280..38b2e0488a38 100644
 +		tmp = next;
 +	}
 +
- 	clear_tsk_need_resched(prev);
- 	clear_preempt_need_resched();
+ 	clear_tsk_need_resched(上一个);
+ 	清除_preempt_need_resched();
  #ifdef CONFIG_SCHED_DEBUG
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index b2210e7cc057..3084e21abfe7 100644
+索引 b2210e7cc057..3084e21abfe7 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -8410,6 +8410,16 @@ static struct task_struct *__pick_next_task_fair(struct rq *rq)
- 	return pick_next_task_fair(rq, NULL, NULL);
+ 	返回 pick_next_task_fair(rq, NULL, NULL);
  }
  
 +static bool eligible_task_fair(struct rq *rq, struct task_struct *p)
@@ -6163,33 +6171,33 @@ index b2210e7cc057..3084e21abfe7 100644
 +}
 +
  /*
-  * Account for a descheduled task:
+  * 考虑预定任务：
   */
-@@ -13006,6 +13016,7 @@ DEFINE_SCHED_CLASS(fair) = {
+@@ -13006,6 +13016,7 @@ DEFINE_SCHED_CLASS(公平) = {
  
- 	.wakeup_preempt		= check_preempt_wakeup_fair,
+ 	.wakeup_preempt = check_preempt_wakeup_fair,
  
 +	.eligible_task		= eligible_task_fair,
- 	.pick_next_task		= __pick_next_task_fair,
- 	.put_prev_task		= put_prev_task_fair,
- 	.set_next_task          = set_next_task_fair,
+ 	.pick_next_task = __pick_next_task_fair,
+ 	.put_prev_task = put_prev_task_fair,
+ 	.set_next_task = set_next_task_fair,
 diff --git a/kernel/sched/features.h b/kernel/sched/features.h
-index a133b46efedd..0546905f1f8f 100644
+索引 a133b46efedd..0546905f1f8f 100644
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
 @@ -11,6 +11,7 @@ SCHED_FEAT(PREEMPT_SHORT, true)
- SCHED_FEAT(PLACE_SLEEPER, false)
+ SCHED_FEAT（PLACE_SLEEPER，假）
  SCHED_FEAT(GENTLE_SLEEPER, true)
- SCHED_FEAT(EVDF, false)
+ SCHED_FEAT（EVDF，假）
 +SCHED_FEAT(DELAY_DEQUEUE, true)
  
  /*
-  * Prefer to schedule the task we woke last (assuming it failed
+  * 更愿意安排我们最后醒来的任务（假设它失败了）
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index 245df0c6d344..35d297e1d91b 100644
+索引 245df0c6d344..35d297e1d91b 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -2222,6 +2222,7 @@ struct sched_class {
+@@ -2222,6 +2222,7 @@ 结构 sched_class {
  
  	void (*wakeup_preempt)(struct rq *rq, struct task_struct *p, int flags);
  
@@ -6197,13 +6205,13 @@ index 245df0c6d344..35d297e1d91b 100644
  	struct task_struct *(*pick_next_task)(struct rq *rq);
  
  	void (*put_prev_task)(struct rq *rq, struct task_struct *p);
-@@ -2275,7 +2276,7 @@ struct sched_class {
+@@ -2275,7 +2276,7 @@ 结构 sched_class {
  
- static inline void put_prev_task(struct rq *rq, struct task_struct *prev)
+ 静态内联无效 put_prev_task(struct rq *rq, struct task_struct *prev)
  {
 -	WARN_ON_ONCE(rq-&gt;curr != prev);
 +//	WARN_ON_ONCE(rq-&gt;curr != prev);
- 	prev-&gt;sched_class-&gt;put_prev_task(rq, prev);
+上一个-&gt;sched_class-&gt;put_prev_task(rq, 上一个);
  }</pre>
   </details>
 </div>
@@ -6241,7 +6249,7 @@ tbench 与 Massive_intr
 一场明显的胜利，并且对平凡的组合没有造成任何伤害，是我的良好开端。
 书。  希望罐装基准机器人不会抱怨。
 
-	-麦克风</pre></div>
+	-Mike</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -6301,7 +6309,7 @@ squinting required, and completely invisible in dinky rpi4.</pre></div>
 <div class="pg-cell"><pre>一场明显的胜利，并且对平凡的组合没有造成任何伤害，是我的良好开端。
 书。  希望罐装基准机器人不会抱怨。</pre></div><div class="pg-cell pg-orig"><pre>A clear win along with no harm to the mundane mix is a good start in my
 book.  Here&#x27;s hoping canned benchmark bots don&#x27;t grumble.</pre></div>
-<div class="pg-cell"><pre>	-麦克风</pre></div><div class="pg-cell pg-orig"><pre>	-Mike</pre></div>
+<div class="pg-cell"><pre>	-Mike</pre></div><div class="pg-cell pg-orig"><pre>	-Mike</pre></div>
 </div>
 </details>
 </div>
@@ -6670,13 +6678,13 @@ sense, irrespective of sign.</pre></div>
 是的，我明白了。但比例因子仅适用于要放置的实体。
 假设树上有一个实体 k：
 
-	vl_k = V - v_k
+vl_k = V - v_k
 
 添加要放置的实体 i 会通过以下方式影响此效果：
 
-	定义增量 := w_i*vl_i / (W + w_i)
+定义增量 := w_i*vl_i / (W + w_i)
 
-	vl&#x27;_k = V&#x27; - v_k
+vl&#x27;_k = V&#x27; - v_k
 		= V - delta - (V - vl_k)
 		= vl_k - 增量
 
@@ -6730,10 +6738,10 @@ I wonder if we should simply do offsetting rather than scaling.
 <div class="pg-cell"><pre>是的，我明白了。但比例因子仅适用于要放置的实体。
 假设树上有一个实体 k：</pre></div><div class="pg-cell pg-orig"><pre>Yeah, I see. But the scale factor is only for the to-be-placed entity.
 Say there is an entity k on the tree:</pre></div>
-<div class="pg-cell"><pre>	vl_k = V - v_k</pre></div><div class="pg-cell pg-orig"><pre>	vl_k	= V - v_k</pre></div>
+<div class="pg-cell"><pre>vl_k = V - v_k</pre></div><div class="pg-cell pg-orig"><pre>	vl_k	= V - v_k</pre></div>
 <div class="pg-cell"><pre>添加要放置的实体 i 会通过以下方式影响此效果：</pre></div><div class="pg-cell pg-orig"><pre>adding the to-be-placed entity i affects this by:</pre></div>
-<div class="pg-cell"><pre>	定义增量 := w_i*vl_i / (W + w_i)</pre></div><div class="pg-cell pg-orig"><pre>	define delta := w_i*vl_i / (W + w_i)</pre></div>
-<div class="pg-cell"><pre>	vl&#x27;_k = V&#x27; - v_k
+<div class="pg-cell"><pre>定义增量 := w_i*vl_i / (W + w_i)</pre></div><div class="pg-cell pg-orig"><pre>	define delta := w_i*vl_i / (W + w_i)</pre></div>
+<div class="pg-cell"><pre>vl&#x27;_k = V&#x27; - v_k
 		= V - delta - (V - vl_k)
 		= vl_k - 增量</pre></div><div class="pg-cell pg-orig"><pre>	vl&#x27;_k	= V&#x27; - v_k
 		= V - delta - (V - vl_k)
@@ -6818,7 +6826,7 @@ numerically less stable.</pre></div>
 &gt; I don&#x27;t see the point, the result is the same and computing delta seems
 &gt; numerically less stable.
 
-对。那时我已经不是我自己了，请忘记我说的话吧。</pre></div>
+正确的。那时我已经不是我自己了，请忘记我说的话吧。</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -6842,7 +6850,7 @@ Right. I was not myself then, please forget what I said..</pre></div>
 [...36 行引用已省略...]
 &gt; I don&#x27;t see the point, the result is the same and computing delta seems
 &gt; numerically less stable.</pre></div>
-<div class="pg-cell"><pre>对。那时我已经不是我自己了，请忘记我说的话吧。</pre></div><div class="pg-cell pg-orig"><pre>Right. I was not myself then, please forget what I said..</pre></div>
+<div class="pg-cell"><pre>正确的。那时我已经不是我自己了，请忘记我说的话吧。</pre></div><div class="pg-cell pg-orig"><pre>Right. I was not myself then, please forget what I said..</pre></div>
 </div>
 </details>
 </div>
@@ -6866,7 +6874,8 @@ Right. I was not myself then, please forget what I said..</pre></div>
 接口当前不允许这样做，请提供通用帮助器
 将节点添加到增强的缓存树中。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -6890,7 +6899,8 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 down the tree during lookup would be faster -- alas the augment
 interface does not currently allow for that, provide a generic helper
 to add a node to an augmented cached tree.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -6901,7 +6911,7 @@ to add a node to an augmented cached tree.</pre></div>
 --- a/include/linux/rbtree_augmented.h
 +++ b/include/linux/rbtree_augmented.h
 @@ -60,6 +60,32 @@ rb_insert_augmented_cached(struct rb_nod
- 	rb_insert_augmented(node, &amp;root-&gt;rb_root, augment);
+ 	rb_insert_augmented(节点, &amp;root-&gt;rb_root, 增强);
  }
  
 +static __always_inline struct rb_node *
@@ -6931,7 +6941,7 @@ to add a node to an augmented cached tree.</pre></div>
 +}
 +
  /*
-  * Template for declaring augmented rbtree callbacks (generic case)
+  * 用于声明增强 rbtree 回调的模板（通用情况）
   *</pre>
   </details>
 </div>
@@ -6961,7 +6971,7 @@ to add a node to an augmented cached tree.</pre></div>
 
 EEVDF 有两个参数：
 
- - 权重或时间斜率；就像以前一样映射到nice
+- 权重或时间斜率；就像以前一样映射到nice
  - 请求大小，或切片长度；用于计算
    虚拟截止日期为：vd_i = ve_i + r_i/w_i
 
@@ -6975,7 +6985,8 @@ Tick驱动抢占由请求/切片完成驱动；同时
 选择不再是“最左边的”，过度调度不再是一个问题
 问题。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -7025,7 +7036,7 @@ tree -- those entities that are owed service. Except because this is a
 virtual time scheduler, the deadlines are in virtual time as well,
 which is what allows over-subscription.</pre></div>
 <div class="pg-cell"><pre>EEVDF 有两个参数：</pre></div><div class="pg-cell pg-orig"><pre>EEVDF has two parameters:</pre></div>
-<div class="pg-cell"><pre> - 权重或时间斜率；就像以前一样映射到nice
+<div class="pg-cell"><pre>- 权重或时间斜率；就像以前一样映射到nice
  - 请求大小，或切片长度；用于计算
    虚拟截止日期为：vd_i = ve_i + r_i/w_i</pre></div><div class="pg-cell pg-orig"><pre> - weight, or time-slope; which is mapped to nice just as before
  - request size, or slice length; which is used to compute
@@ -7041,7 +7052,8 @@ wakeup preemption is driven by the deadline.</pre></div>
 问题。</pre></div><div class="pg-cell pg-orig"><pre>Because the tree is now effectively an interval tree, and the
 selection is no longer &#x27;leftmost&#x27;, over-scheduling is less of a
 problem.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -7056,30 +7068,30 @@ problem.</pre></div>
 
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
-@@ -550,6 +550,9 @@ struct sched_entity {
- 	/* For load-balancing: */
- 	struct load_weight		load;
- 	struct rb_node			run_node;
+@@ -550,6 +550,9 @@ 结构 sched_entity {
+ 	/* 用于负载平衡： */
+ 	struct load_weight 负载；
+ 	结构 rb_node run_node;
 +	u64				deadline;
 +	u64				min_deadline;
 +
- 	struct list_head		group_node;
- 	unsigned int			on_rq;
+ 	struct list_head group_node;
+ 	无符号整型 on_rq；
  
-@@ -558,6 +561,7 @@ struct sched_entity {
- 	u64				prev_sum_exec_runtime;
- 	u64				vruntime;
- 	s64				vlag;
+@@ -558,6 +561,7 @@ 结构 sched_entity {
+ 	u64 prev_sum_exec_runtime;
+ 	u64虚拟运行时；
+ 	s64 vlag；
 +	u64				slice;
  
- 	u64				nr_migrations;
+ 	u64 nr_migrations；
  
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4464,6 +4464,7 @@ static void __sched_fork(unsigned long c
- 	p-&gt;se.nr_migrations		= 0;
- 	p-&gt;se.vruntime			= 0;
- 	p-&gt;se.vlag			= 0;
+ 	p-&gt;se.nr_migrations = 0;
+ 	p-&gt;se.vruntime = 0;
+ 	p-&gt;se.vlag = 0;
 +	p-&gt;se.slice			= sysctl_sched_min_granularity;
  	INIT_LIST_HEAD(&amp;p-&gt;se.group_node);
  
@@ -7087,19 +7099,19 @@ problem.</pre></div>
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
 @@ -581,9 +581,13 @@ print_task(struct seq_file *m, struct rq
- 	else
+ 	否则
  		SEQ_printf(m, &quot; %c&quot;, task_state_to_char(p));
  
 -	SEQ_printf(m, &quot; %15s %5d %9Ld.%06ld %9Ld %5d &quot;,
 +	SEQ_printf(m, &quot;%15s %5d %9Ld.%06ld %c %9Ld.%06ld %9Ld.%06ld %9Ld.%06ld %9Ld %5d &quot;,
- 		p-&gt;comm, task_pid_nr(p),
+ 		p-&gt;comm,task_pid_nr(p),
  		SPLIT_NS(p-&gt;se.vruntime),
 +		entity_eligible(cfs_rq_of(&amp;p-&gt;se), &amp;p-&gt;se) ? &#x27;E&#x27; : &#x27;N&#x27;,
 +		SPLIT_NS(p-&gt;se.deadline),
 +		SPLIT_NS(p-&gt;se.slice),
 +		SPLIT_NS(p-&gt;se.sum_exec_runtime),
- 		(long long)(p-&gt;nvcsw + p-&gt;nivcsw),
- 		p-&gt;prio);
+ 		(长长)(p-&gt;nvcsw + p-&gt;nivcsw),
+ 		p-&gt;先验）；
  
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
@@ -7111,8 +7123,8 @@ problem.</pre></div>
  
  #include &lt;asm/switch_to.h&gt;
  
-@@ -347,6 +348,16 @@ static u64 __calc_delta(u64 delta_exec,
- 	return mul_u64_u32_shr(delta_exec, fact, shift);
+@@ -347,6 +348,16 @@ 静态 u64 __calc_delta(u64 delta_exec,
+ 	返回 mul_u64_u32_shr(delta_exec, 事实, 移位);
  }
  
 +/*
@@ -7126,7 +7138,7 @@ problem.</pre></div>
 +	return delta;
 +}
  
- const struct sched_class fair_sched_class;
+ const struct sched_class fair_sched_class；
  
 @@ -717,11 +728,62 @@ u64 avg_vruntime(struct cfs_rq *cfs_rq)
  
@@ -7191,10 +7203,10 @@ problem.</pre></div>
 +	return avg &gt;= entity_key(cfs_rq, se) * load;
  }
  
- static u64 __update_min_vruntime(struct cfs_rq *cfs_rq, u64 vruntime)
+ 静态 u64 __update_min_vruntime(struct cfs_rq *cfs_rq, u64 vruntime)
 @@ -740,8 +802,8 @@ static u64 __update_min_vruntime(struct
  
- static void update_min_vruntime(struct cfs_rq *cfs_rq)
+ 静态无效 update_min_vruntime（结构 cfs_rq *cfs_rq）
  {
 +	struct sched_entity *se = __pick_first_entity(cfs_rq);
  	struct sched_entity *curr = cfs_rq-&gt;curr;
@@ -7203,18 +7215,18 @@ problem.</pre></div>
  	u64 vruntime = cfs_rq-&gt;min_vruntime;
  
 @@ -752,9 +814,7 @@ static void update_min_vruntime(struct c
- 			curr = NULL;
+ 			当前=空；
  	}
  
 -	if (leftmost) { /* non-empty tree */
 -		struct sched_entity *se = __node_2_se(leftmost);
 -
 +	if (se) {
- 		if (!curr)
+ 		如果 (!curr)
  			vruntime = se-&gt;vruntime;
- 		else
-@@ -771,18 +831,50 @@ static inline bool __entity_less(struct
- 	return entity_before(__node_2_se(a), __node_2_se(b));
+ 		否则
+@@ -771,18 +831,50 @@ 静态内联 bool __entity_less(struct
+ 	返回entity_before(__node_2_se(a), __node_2_se(b));
  }
  
 +#define deadline_gt(field, lse, rse) ({ (s64)((lse)-&gt;field - (rse)-&gt;field) &gt; 0; })
@@ -7247,9 +7259,9 @@ problem.</pre></div>
 +		     run_node, min_deadline, min_deadline_update);
 +
  /*
-  * Enqueue an entity into the rb-tree:
+  * 将实体放入 rb 树中：
   */
- static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 静态无效__enqueue_entity（结构cfs_rq * cfs_rq，结构sched_entity * se）
  {
  	avg_vruntime_add(cfs_rq, se);
 -	rb_add_cached(&amp;se-&gt;run_node, &amp;cfs_rq-&gt;tasks_timeline, __entity_less);
@@ -7258,7 +7270,7 @@ problem.</pre></div>
 +				__entity_less, &amp;min_deadline_cb);
  }
  
- static void __dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+ 静态无效 __dequeue_entity（结构 cfs_rq *cfs_rq，结构 sched_entity *se）
  {
 -	rb_erase_cached(&amp;se-&gt;run_node, &amp;cfs_rq-&gt;tasks_timeline);
 +	rb_erase_augmented_cached(&amp;se-&gt;run_node, &amp;cfs_rq-&gt;tasks_timeline,
@@ -7266,8 +7278,8 @@ problem.</pre></div>
  	avg_vruntime_sub(cfs_rq, se);
  }
  
-@@ -806,6 +898,97 @@ static struct sched_entity *__pick_next_
- 	return __node_2_se(next);
+@@ -806,6 +898,97 @@静态结构sched_entity *__pick_next_
+ 	返回 __node_2_se(下一个);
  }
  
 +static struct sched_entity *pick_cfs(struct cfs_rq *cfs_rq, struct sched_entity *curr)
@@ -7347,7 +7359,7 @@ Peter Zijlstra &lt;peterz@infradead.org&gt; 写道：
 左边的分支。一个简单的 3-se 示例，其节点表示为
 （vruntime，截止日期，min_deadline）：
 
-   (5,9,7)
+(5,9,7)
  /\
 (4,8,8) (6,7,7)
 
@@ -7445,7 +7457,7 @@ deadline, because the earliest deadline (min_deadline) can be in the
 right branch, but that se isn&#x27;t eligible, and the actual target se is in
 the left branch. A trivial 3-se example with the nodes represented by
 (vruntime, deadline, min_deadline):</pre></div>
-<div class="pg-cell"><pre>   (5,9,7)
+<div class="pg-cell"><pre>(5,9,7)
  /\
 (4,8,8) (6,7,7)</pre></div><div class="pg-cell pg-orig"><pre>   (5,9,7)
  /        \
@@ -7567,7 +7579,7 @@ Let me go stare at your patch in more detail.</pre></div>
 必须是符合条件的实体 j (d_j &gt;= d_i) &amp;&amp; (v_j &lt; V)。给定
 截止日期是如何计算的，可以推断：
 
-	vslice_i &lt; vslice_j
+vslice_i &lt; vslice_j
 
 IOW 一个更像批处理且期限更宽松的实体将击败实体
 即使截止日期更紧，这也更具互动性，只是因为
@@ -7626,7 +7638,7 @@ Thanks &amp; Best,
 截止日期是如何计算的，可以推断：</pre></div><div class="pg-cell pg-orig"><pre>Assume entity i satisfies (d_i == min_deadline) &amp;&amp; (v_i &gt; V), there
 must be an eligible entity j with (d_j &gt;= d_i) &amp;&amp; (v_j &lt; V). Given
 that how deadline is calculated, it can be inferred that:</pre></div>
-<div class="pg-cell"><pre>	vslice_i &lt; vslice_j</pre></div><div class="pg-cell pg-orig"><pre>	vslice_i &lt; vslice_j</pre></div>
+<div class="pg-cell"><pre>vslice_i &lt; vslice_j</pre></div><div class="pg-cell pg-orig"><pre>	vslice_i &lt; vslice_j</pre></div>
 <div class="pg-cell"><pre>IOW 一个更像批处理且期限更宽松的实体将击败实体
 即使截止日期更紧，这也更具互动性，只是因为
 前者有资格，而后者则没有资格。</pre></div><div class="pg-cell pg-orig"><pre>IOW a more batch-like entity with looser deadline will beat entities
@@ -7825,7 +7837,8 @@ FAIR_SLEEPER 的一个副作用是造成“小”不公平，
 严格来说，这应该（当然）导致 33%/67%
 split（如果睡眠时间超过“thresh”，CFS 也会这样做）。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -7870,7 +7883,8 @@ specifically, by always ignoring up-to &#x27;thresh&#x27; sleeptime it would
 have a 50%/50% time distribution for a 50% sleeper vs a 100% runner,
 while strictly speaking this should (of course) result in a 33%/67%
 split (as CFS will also do if the sleep period exceeds &#x27;thresh&#x27;).</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -7908,13 +7922,13 @@ split (as CFS will also do if the sleep period exceeds &#x27;thresh&#x27;).</pre
 -	return false;
 -}
 -
- static void
- place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
+ 静态无效
+ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int 初始值)
  {
 @@ -5172,43 +5149,9 @@ place_entity(struct cfs_rq *cfs_rq, stru
- 		if (WARN_ON_ONCE(!load))
- 			load = 1;
- 		lag = div_s64(lag, load);
+ 		如果（WARN_ON_ONCE（！加载））
+ 			负载=1；
+ 		滞后= div_s64（滞后，负载）；
 -
 -		vruntime -= lag;
 -	}
@@ -7955,11 +7969,11 @@ split (as CFS will also do if the sleep period exceeds &#x27;thresh&#x27;).</pre
 +	se-&gt;vruntime = vruntime - lag;
  
  	/*
- 	 * When joining the competition; the exisiting tasks will be,
+ 	 * 参加比赛时；现有的任务将是，
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
 @@ -1,14 +1,6 @@
- /* SPDX-License-Identifier: GPL-2.0 */
+ /* SPDX-许可证-标识符: GPL-2.0 */
  
  /*
 - * Only give sleepers 50% of their service deficit. This allows
@@ -7970,8 +7984,8 @@ split (as CFS will also do if the sleep period exceeds &#x27;thresh&#x27;).</pre
 -SCHED_FEAT(GENTLE_FAIR_SLEEPERS, true)
 -
 -/*
-  * Using the avg_vruntime, do the right thing and preserve lag across
-  * sleep+wake cycles. EEVDF placement strategy #1, #2 if disabled.
+  * 使用 avg_vruntime，做正确的事情并保持延迟
+  * 睡眠+觉醒周期。 EEVDF 放置策略#1、#2（如果禁用）。
   */</pre>
   </details>
 </div>
@@ -7997,7 +8011,8 @@ split (as CFS will also do if the sleep period exceeds &#x27;thresh&#x27;).</pre
 avg_vruntime() 就是为了这个目的（SMP 迁移）。既然我们现在
 拥有真实的东西；使用它。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -8024,7 +8039,8 @@ avg_vruntime() 就是为了这个目的（SMP 迁移）。既然我们现在
 拥有真实的东西；使用它。</pre></div><div class="pg-cell pg-orig"><pre>Notable, min_vruntime() was invented as a cheap approximation of
 avg_vruntime() for this very purpose (SMP migration). Since we now
 have the real thing; use it.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -8036,16 +8052,16 @@ have the real thing; use it.</pre></div>
 +++ b/kernel/sched/fair.c
 @@ -5083,7 +5083,7 @@ place_entity(struct cfs_rq *cfs_rq, stru
  	 *
- 	 * EEVDF: placement strategy #1 / #2
+ 	 * EEVDF：放置策略#1 / #2
  	 */
 -	if (sched_feat(PLACE_LAG) &amp;&amp; cfs_rq-&gt;nr_running &gt; 1) {
 +	if (sched_feat(PLACE_LAG) &amp;&amp; cfs_rq-&gt;nr_running) {
  		struct sched_entity *curr = cfs_rq-&gt;curr;
- 		unsigned long load;
+ 		无符号长负载；
  
 @@ -5171,61 +5171,21 @@ static void check_enqueue_throttle(struc
  
- static inline bool cfs_bandwidth_used(void);
+ 静态内联 bool cfs_bandwidth_used(void);
  
 -/*
 - * MIGRATION
@@ -8077,15 +8093,15 @@ have the real thing; use it.</pre></div>
 - * CPU and an up-to-date min_vruntime on the destination CPU.
 - */
 -
- static void
- enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 静态无效
+ enqueue_entity（结构 cfs_rq *cfs_rq，结构 sched_entity *se，int 标志）
  {
 -	bool renorm = !(flags &amp; ENQUEUE_WAKEUP) || (flags &amp; ENQUEUE_MIGRATED);
  	bool curr = cfs_rq-&gt;curr == se;
  
  	/*
- 	 * If we&#x27;re the current task, we must renormalise before calling
- 	 * update_curr().
+ 	 * 如果我们是当前任务，我们必须在调用之前重新规范化
+ 	 * update_curr()。
  	 */
 -	if (renorm &amp;&amp; curr)
 -		se-&gt;vruntime += cfs_rq-&gt;min_vruntime;
@@ -8104,9 +8120,9 @@ have the real thing; use it.</pre></div>
 -		se-&gt;vruntime += cfs_rq-&gt;min_vruntime;
 -
 -	/*
- 	 * When enqueuing a sched_entity, we must:
- 	 *   - Update loads to have both entity and cfs_rq synced with now.
- 	 *   - For group_entity, update its runnable_weight to reflect the new
+ 	 * 当对 sched_entity 进行排队时，我们必须：
+ 	 * - 更新负载以使实体和 cfs_rq 与现在同步。
+ 	 * - 对于group_entity，更新其runnable_weight以反映新的
 @@ -5236,11 +5196,22 @@ enqueue_entity(struct cfs_rq *cfs_rq, st
  	 */
  	update_load_avg(cfs_rq, se, UPDATE_TG | DO_ATTACH);
@@ -8129,12 +8145,12 @@ have the real thing; use it.</pre></div>
 +
 +	account_entity_enqueue(cfs_rq, se);
 +
- 	/* Entity has migrated, no longer consider this task hot */
- 	if (flags &amp; ENQUEUE_MIGRATED)
+ 	/* 实体已经迁移，不再认为这个任务是hot */
+ 	if (标志 &amp; ENQUEUE_MIGRATED)
  		se-&gt;exec_start = 0;
 @@ -5335,23 +5306,12 @@ dequeue_entity(struct cfs_rq *cfs_rq, st
  
- 	clear_buddies(cfs_rq, se);
+ 	清除好友（cfs_rq，se）；
  
 -	if (flags &amp; DEQUEUE_SLEEP)
 -		update_entity_lag(cfs_rq, se);
@@ -8154,7 +8170,7 @@ have the real thing; use it.</pre></div>
 -	if (!(flags &amp; DEQUEUE_SLEEP))
 -		se-&gt;vruntime -= cfs_rq-&gt;min_vruntime;
 -
- 	/* return excess runtime on last dequeue */
+ 	/* 返回最后一次出队时多余的运行时间 */
  	return_cfs_rq_runtime(cfs_rq);
  
 @@ -8102,18 +8062,6 @@ static void migrate_task_rq_fair(struct
@@ -8173,22 +8189,22 @@ have the real thing; use it.</pre></div>
 -		se-&gt;vruntime -= u64_u32_load(cfs_rq-&gt;min_vruntime);
 -	}
 -
- 	if (!task_on_rq_migrating(p)) {
- 		remove_entity_load_avg(se);
+ 	if (!task_on_rq_migration(p)) {
+ 		删除_实体_加载_avg(se);
  
 @@ -12482,8 +12430,8 @@ static void task_tick_fair(struct rq *rq
   */
- static void task_fork_fair(struct task_struct *p)
+ 静态无效task_fork_fair（结构task_struct * p）
  {
 -	struct cfs_rq *cfs_rq;
  	struct sched_entity *se = &amp;p-&gt;se, *curr;
 +	struct cfs_rq *cfs_rq;
- 	struct rq *rq = this_rq();
- 	struct rq_flags rf;
+ 	结构体rq *rq = this_rq();
+ 	结构体rq_flags rf；
  
 @@ -12492,22 +12440,9 @@ static void task_fork_fair(struct task_s
  
- 	cfs_rq = task_cfs_rq(current);
+ 	cfs_rq = task_cfs_rq(当前);
  	curr = cfs_rq-&gt;curr;
 -	if (curr) {
 +	if (curr)
@@ -8244,9 +8260,9 @@ have the real thing; use it.</pre></div>
 -
  #ifdef CONFIG_FAIR_GROUP_SCHED
  /*
-  * Propagate the changes of the sched_entity across the tg tree to make it
-@@ -12634,16 +12541,6 @@ static void attach_entity_cfs_rq(struct
- static void detach_task_cfs_rq(struct task_struct *p)
+  * 将sched_entity的变化传播到tg树中以使其
+@@ -12634,16 +12541,6 @@ static void Attach_entity_cfs_rq(struct
+静态无效detach_task_cfs_rq（结构task_struct * p）
  {
  	struct sched_entity *se = &amp;p-&gt;se;
 -	struct cfs_rq *cfs_rq = cfs_rq_of(se);
@@ -8263,18 +8279,18 @@ have the real thing; use it.</pre></div>
  	detach_entity_cfs_rq(se);
  }
 @@ -12651,12 +12548,8 @@ static void detach_task_cfs_rq(struct ta
- static void attach_task_cfs_rq(struct task_struct *p)
+ 静态无效 Attach_task_cfs_rq(struct task_struct *p)
  {
  	struct sched_entity *se = &amp;p-&gt;se;
 -	struct cfs_rq *cfs_rq = cfs_rq_of(se);
  
- 	attach_entity_cfs_rq(se);
+ 	Attach_entity_cfs_rq(se);
 -
 -	if (!vruntime_normalized(p))
 -		se-&gt;vruntime += cfs_rq-&gt;min_vruntime;
  }
  
- static void switched_from_fair(struct rq *rq, struct task_struct *p)</pre>
+ 静态无效switched_from_fair（结构rq * rq，结构task_struct * p）</pre>
   </details>
 </div>
 <div class="replies"><details class="reply-thread"><summary>Sebastian Andrzej Siewior — Re: [PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue <span class="count-badge">2</span></summary><div class="email-card">
@@ -8422,7 +8438,8 @@ while and it might be time to remove it.</pre></div>
       <div class="email-body"><pre>EEVDF 是一种定义更好的调度策略，因此它具有更少的
 启发式/可调式。没有令人信服的理由保留 CFS。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -8440,7 +8457,8 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 <div class="pg-cell"><pre>EEVDF 是一种定义更好的调度策略，因此它具有更少的
 启发式/可调式。没有令人信服的理由保留 CFS。</pre></div><div class="pg-cell pg-orig"><pre>EEVDF is a better defined scheduling policy, as a result it has less
 heuristics/tunables. There is no compelling reason to keep CFS around.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -8454,22 +8472,22 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
 @@ -347,10 +347,7 @@ static __init int sched_init_debug(void)
- 	debugfs_create_file(&quot;preempt&quot;, 0644, debugfs_sched, NULL, &amp;sched_dynamic_fops);
+ 	debugfs_create_file(&quot;抢占&quot;, 0644, debugfs_sched, NULL, &amp;sched_dynamic_fops);
  #endif
  
 -	debugfs_create_u32(&quot;latency_ns&quot;, 0644, debugfs_sched, &amp;sysctl_sched_latency);
- 	debugfs_create_u32(&quot;min_granularity_ns&quot;, 0644, debugfs_sched, &amp;sysctl_sched_min_granularity);
+ 	debugfs_create_u32(&quot;min_capsularity_ns&quot;, 0644, debugfs_sched, &amp;sysctl_sched_min_million);
 -	debugfs_create_u32(&quot;idle_min_granularity_ns&quot;, 0644, debugfs_sched, &amp;sysctl_sched_idle_min_granularity);
 -	debugfs_create_u32(&quot;wakeup_granularity_ns&quot;, 0644, debugfs_sched, &amp;sysctl_sched_wakeup_granularity);
  
  	debugfs_create_u32(&quot;latency_warn_ms&quot;, 0644, debugfs_sched, &amp;sysctl_resched_latency_warn_ms);
  	debugfs_create_u32(&quot;latency_warn_once&quot;, 0644, debugfs_sched, &amp;sysctl_resched_latency_warn_once);
 @@ -865,10 +862,7 @@ static void sched_debug_header(struct se
- 	SEQ_printf(m, &quot;  .%-40s: %Ld\n&quot;, #x, (long long)(x))
- #define PN(x) \
- 	SEQ_printf(m, &quot;  .%-40s: %Ld.%06ld\n&quot;, #x, SPLIT_NS(x))
+ 	SEQ_printf(m, &quot; .%-40s: %Ld\n&quot;, #x, (long long)(x))
+ #定义 PN(x) \
+ 	SEQ_printf(m, &quot; .%-40s: %Ld.%06ld\n&quot;, #x, SPLIT_NS(x))
 -	PN(sysctl_sched_latency);
- 	PN(sysctl_sched_min_granularity);
+ 	PN(sysctl_sched_min_grainarity);
 -	PN(sysctl_sched_idle_min_granularity);
 -	PN(sysctl_sched_wakeup_granularity);
  	P(sysctl_sched_child_runs_first);
@@ -8478,7 +8496,7 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -58,22 +58,6 @@
- #include &quot;autogroup.h&quot;
+ #include“autogroup.h”
  
  /*
 - * Targeted preemption latency for CPU-bound tasks:
@@ -8497,11 +8515,11 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 -static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
 -
 -/*
-  * The initial- and re-scaling of tunables is configurable
+  * 可调参数的初始缩放和重新缩放是可配置的
   *
-  * Options are:
-@@ -95,36 +79,11 @@ unsigned int sysctl_sched_min_granularit
- static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
+  * 选项有：
+@@ -95,36 +79,11 @@ 无符号整型 sysctl_sched_min_capsularit
+ 静态无符号 int 规范化_sysctl_sched_min_capsularity = 750000ULL；
  
  /*
 - * Minimal preemption granularity for CPU-bound SCHED_IDLE tasks.
@@ -8517,10 +8535,10 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 -static unsigned int sched_nr_latency = 8;
 -
 -/*
-  * After fork, child runs first. If set to 0 (default) then
-  * parent will (try to) run first.
+  * fork之后，child先跑。如果设置为 0（默认）则
+  * 父母将（尝试）先跑。
   */
- unsigned int sysctl_sched_child_runs_first __read_mostly;
+ 无符号整型 sysctl_sched_child_runs_first __read_mostly;
  
 -/*
 - * SCHED_OTHER wake-up granularity.
@@ -8534,20 +8552,20 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 -unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
 -static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 -
- const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
+ const_debug 无符号整数 sysctl_sched_migration_cost = 500000UL；
  
- int sched_thermal_decay_shift;
+ int sched_ Thermal_decay_shift；
 @@ -279,8 +238,6 @@ static void update_sysctl(void)
- #define SET_SYSCTL(name) \
- 	(sysctl_##name = (factor) * normalized_sysctl_##name)
- 	SET_SYSCTL(sched_min_granularity);
+ #define SET_SYSCTL(名称) \
+ 	(sysctl_##名称 = (因子) * 标准化_sysctl_##名称)
+ 	SET_SYSCTL(sched_min_粒度);
 -	SET_SYSCTL(sched_latency);
 -	SET_SYSCTL(sched_wakeup_granularity);
  #undef SET_SYSCTL
  }
  
 @@ -888,30 +845,6 @@ struct sched_entity *__pick_first_entity
- 	return __node_2_se(left);
+ 	返回 __node_2_se(左);
  }
  
 -static struct sched_entity *__pick_next_entity(struct sched_entity *se)
@@ -8575,23 +8593,23 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 -}
 -
  /*
-  * Earliest Eligible Virtual Deadline First
+  * 最早符合资格的虚拟截止日期优先
   *
 @@ -1008,85 +941,15 @@ int sched_update_scaling(void)
  {
- 	unsigned int factor = get_update_sysctl_factor();
+ 	无符号整型因子 = get_update_sysctl_factor();
  
 -	sched_nr_latency = DIV_ROUND_UP(sysctl_sched_latency,
 -					sysctl_sched_min_granularity);
 -
- #define WRT_SYSCTL(name) \
- 	(normalized_sysctl_##name = sysctl_##name / (factor))
- 	WRT_SYSCTL(sched_min_granularity);
+ #define WRT_SYSCTL(名称) \
+ 	(归一化_sysctl_##名称 = sysctl_##名称 / (因子))
+ 	WRT_SYSCTL(sched_min_grainarity);
 -	WRT_SYSCTL(sched_latency);
 -	WRT_SYSCTL(sched_wakeup_granularity);
  #undef WRT_SYSCTL
  
- 	return 0;
+ 	返回0；
  }
  #endif
  
@@ -8660,12 +8678,12 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 -	return slice;
 -}
 -
- static void clear_buddies(struct cfs_rq *cfs_rq, struct sched_entity *se);
+ 静态无效clear_buddies（结构cfs_rq * cfs_rq，结构sched_entity * se）；
  
  /*
 @@ -1098,35 +961,25 @@ static void update_deadline(struct cfs_r
- 	if ((s64)(se-&gt;vruntime - se-&gt;deadline) &lt; 0)
- 		return;
+if ((s64)(se-&gt;vruntime - se-&gt;截止日期) &lt; 0)
+ 		返回；
  
 -	if (sched_feat(EEVDF)) {
 -		/*
@@ -8699,9 +8717,9 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 +	se-&gt;slice = sysctl_sched_min_granularity;
  
  	/*
- 	 * EEVDF: vd_i = ve_i + r_i / w_i
+ 	 * EEVDF：vd_i = ve_i + r_i / w_i
  	 */
- 	se-&gt;deadline = se-&gt;vruntime + calc_delta_fair(se-&gt;slice, se);
+ 	se-&gt;截止日期 = se-&gt;vruntime + calc_delta_fair(se-&gt;slice, se);
 +
 +	/*
 +	 * The task has consumed its request, reschedule.
@@ -8712,8 +8730,8 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 +	}
  }
  
- #include &quot;pelt.h&quot;
-@@ -5055,19 +4908,6 @@ static inline void update_misfit_status(
+ #include“毛皮.h”
+@@ -5055,19 +4908,6 @@ 静态内联 void update_misfit_status(
  
  #endif /* CONFIG_SMP */
  
@@ -8756,7 +8774,7 @@ RT 在我们的测试中表现出色，因为它只是告诉那些较低的人
 
 谢谢，
 
- ——乔尔
+ - Joel
 
 
 [...751 行引用已省略...]</pre></div>
@@ -8828,7 +8846,7 @@ if I&#x27;m not horribly mistaken).</pre></div>
 内核中最复杂的野兽之一，所以我完全支持这个..</pre></div><div class="pg-cell pg-orig"><pre>But hey, less CFS knobs is only a good thing! And most people say fair.c is
 one of the most complex beasts in the kernel so I&#x27;m all for this..</pre></div>
 <div class="pg-cell"><pre>谢谢，</pre></div><div class="pg-cell pg-orig"><pre>thanks,</pre></div>
-<div class="pg-cell"><pre> ——乔尔</pre></div><div class="pg-cell pg-orig"><pre> - Joel</pre></div>
+<div class="pg-cell"><pre> - Joel</pre></div><div class="pg-cell pg-orig"><pre> - Joel</pre></div>
 <div class="pg-cell"><pre>[...751 行引用已省略...]</pre></div><div class="pg-cell pg-orig"><pre>[...751 行引用已省略...]</pre></div>
 </div>
 </details>
@@ -8854,17 +8872,17 @@ one of the most complex beasts in the kernel so I&#x27;m all for this..</pre></d
 补丁系列本身的工件，因为第一个 EEVDF 位是通过添加的 
 与 CFS 并行的三个早期补丁：
 
- 内核/sched/fair.c |  第137章
+内核/sched/fair.c |  第137章
  内核/sched/fair.c |  第162章
  内核/sched/fair.c |  第338章
 
 ...然后我们删除此“提交 EEVDF”补丁中的旧 CFS 策略代码：
 
- 内核/sched/fair.c |  465 +++--------------------------------------------------------
+内核/sched/fair.c |  465 +++--------------------------------------------------------
 
 合并后的 diffstat 接近 50% / 50% 平衡：
 
- 内核/sched/fair.c |第1105章 ++++++++++++++++++++--------------------
+内核/sched/fair.c |第1105章 ++++++++++++++++++++--------------------
 
 但话虽如此，我确实同意 Peter 提交的 EEVDF 更好 
 定义，启发式更少，这是一个整体的胜利 - 所以没有抱怨 
@@ -8872,7 +8890,7 @@ one of the most complex beasts in the kernel so I&#x27;m all for this..</pre></d
 
 谢谢，
 
-	因戈</pre></div>
+因戈</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -8923,22 +8941,22 @@ Thanks,
 与 CFS 并行的三个早期补丁：</pre></div><div class="pg-cell pg-orig"><pre>To to be fair, the &quot;removal&quot; in this patch is in significant part an 
 artifact of the patch series itself, because first EEVDF bits get added by 
 three earlier patches, in parallel to CFS:</pre></div>
-<div class="pg-cell"><pre> 内核/sched/fair.c |  第137章
+<div class="pg-cell"><pre>内核/sched/fair.c |  第137章
  内核/sched/fair.c |  第162章
  内核/sched/fair.c |  第338章</pre></div><div class="pg-cell pg-orig"><pre> kernel/sched/fair.c     |  137 +++++++++++++++++++++++++++++++++++++++++++++++++--
  kernel/sched/fair.c     |  162 +++++++++++++++++++++++++++++++++++++-----------
  kernel/sched/fair.c     |  338 +++++++++++++++++++++++++++++++++++++++++-------</pre></div>
 <div class="pg-cell"><pre>...然后我们删除此“提交 EEVDF”补丁中的旧 CFS 策略代码：</pre></div><div class="pg-cell pg-orig"><pre>... and then we remove the old CFS policy code in this &#x27;commit to EEVDF&#x27; patch:</pre></div>
-<div class="pg-cell"><pre> 内核/sched/fair.c |  465 +++--------------------------------------------------------</pre></div><div class="pg-cell pg-orig"><pre> kernel/sched/fair.c     |  465 +++---------------------------------------------</pre></div>
+<div class="pg-cell"><pre>内核/sched/fair.c |  465 +++--------------------------------------------------------</pre></div><div class="pg-cell pg-orig"><pre> kernel/sched/fair.c     |  465 +++---------------------------------------------</pre></div>
 <div class="pg-cell"><pre>合并后的 diffstat 接近 50% / 50% 平衡：</pre></div><div class="pg-cell pg-orig"><pre>The combined diffstat is close to 50% / 50% balanced:</pre></div>
-<div class="pg-cell"><pre> 内核/sched/fair.c |第1105章 ++++++++++++++++++++--------------------</pre></div><div class="pg-cell pg-orig"><pre> kernel/sched/fair.c              | 1105 ++++++++++++++++++--------------------</pre></div>
+<div class="pg-cell"><pre>内核/sched/fair.c |第1105章 ++++++++++++++++++++--------------------</pre></div><div class="pg-cell pg-orig"><pre> kernel/sched/fair.c              | 1105 ++++++++++++++++++--------------------</pre></div>
 <div class="pg-cell"><pre>但话虽如此，我确实同意 Peter 提交的 EEVDF 更好 
 定义，启发式更少，这是一个整体的胜利 - 所以没有抱怨 
 来自我！</pre></div><div class="pg-cell pg-orig"><pre>But having said that, I do agree that EEVDF as submitted by Peter is better 
 defined, with fewer heuristics, which is an overall win - so no complaints 
 from me!</pre></div>
 <div class="pg-cell"><pre>谢谢，</pre></div><div class="pg-cell pg-orig"><pre>Thanks,</pre></div>
-<div class="pg-cell"><pre>	因戈</pre></div><div class="pg-cell pg-orig"><pre>	Ingo</pre></div>
+<div class="pg-cell"><pre>因戈</pre></div><div class="pg-cell pg-orig"><pre>	Ingo</pre></div>
 </div>
 </details>
 </div>
@@ -8960,7 +8978,7 @@ from me!</pre></div>
 
 同意，谢谢您纠正我的统计数据。
 
-  ——乔尔</pre></div>
+  - Joel</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -8987,7 +9005,7 @@ Agreed, thank you for correcting me on the statistics.
 &gt; defined, with fewer heuristics, which is an overall win - so no complaints
 &gt; from me!</pre></div>
 <div class="pg-cell"><pre>同意，谢谢您纠正我的统计数据。</pre></div><div class="pg-cell pg-orig"><pre>Agreed, thank you for correcting me on the statistics.</pre></div>
-<div class="pg-cell"><pre>  ——乔尔</pre></div><div class="pg-cell pg-orig"><pre>  - Joel</pre></div>
+<div class="pg-cell"><pre>  - Joel</pre></div><div class="pg-cell pg-orig"><pre>  - Joel</pre></div>
 </div>
 </details>
 </div>
@@ -9009,7 +9027,8 @@ Agreed, thank you for correcting me on the statistics.
       <div class="email-body"><pre>EEVDF 使用此可调参数作为基本请求/切片 - 确保
 名字反映了这一点。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -9027,7 +9046,8 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 <div class="pg-cell"><pre>EEVDF 使用此可调参数作为基本请求/切片 - 确保
 名字反映了这一点。</pre></div><div class="pg-cell pg-orig"><pre>EEVDF uses this tunable as the base request/slice -- make sure the
 name reflects this.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -9041,9 +9061,9 @@ name reflects this.</pre></div>
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -4464,7 +4464,7 @@ static void __sched_fork(unsigned long c
- 	p-&gt;se.nr_migrations		= 0;
- 	p-&gt;se.vruntime			= 0;
- 	p-&gt;se.vlag			= 0;
+ 	p-&gt;se.nr_migrations = 0;
+ 	p-&gt;se.vruntime = 0;
+ 	p-&gt;se.vlag = 0;
 -	p-&gt;se.slice			= sysctl_sched_min_granularity;
 +	p-&gt;se.slice			= sysctl_sched_base_slice;
  	INIT_LIST_HEAD(&amp;p-&gt;se.group_node);
@@ -9052,7 +9072,7 @@ name reflects this.</pre></div>
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
 @@ -347,7 +347,7 @@ static __init int sched_init_debug(void)
- 	debugfs_create_file(&quot;preempt&quot;, 0644, debugfs_sched, NULL, &amp;sched_dynamic_fops);
+ 	debugfs_create_file(&quot;抢占&quot;, 0644, debugfs_sched, NULL, &amp;sched_dynamic_fops);
  #endif
  
 -	debugfs_create_u32(&quot;min_granularity_ns&quot;, 0644, debugfs_sched, &amp;sysctl_sched_min_granularity);
@@ -9061,9 +9081,9 @@ name reflects this.</pre></div>
  	debugfs_create_u32(&quot;latency_warn_ms&quot;, 0644, debugfs_sched, &amp;sysctl_resched_latency_warn_ms);
  	debugfs_create_u32(&quot;latency_warn_once&quot;, 0644, debugfs_sched, &amp;sysctl_resched_latency_warn_once);
 @@ -862,7 +862,7 @@ static void sched_debug_header(struct se
- 	SEQ_printf(m, &quot;  .%-40s: %Ld\n&quot;, #x, (long long)(x))
- #define PN(x) \
- 	SEQ_printf(m, &quot;  .%-40s: %Ld.%06ld\n&quot;, #x, SPLIT_NS(x))
+ 	SEQ_printf(m, &quot; .%-40s: %Ld\n&quot;, #x, (long long)(x))
+ #定义 PN(x) \
+ 	SEQ_printf(m, &quot; .%-40s: %Ld.%06ld\n&quot;, #x, SPLIT_NS(x))
 -	PN(sysctl_sched_min_granularity);
 +	PN(sysctl_sched_base_slice);
  	P(sysctl_sched_child_runs_first);
@@ -9071,9 +9091,9 @@ name reflects this.</pre></div>
  #undef PN
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -75,8 +75,8 @@ unsigned int sysctl_sched_tunable_scalin
+@@ -75,8 +75,8 @@ 无符号整型 sysctl_sched_tunable_scalin
   *
-  * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
+  *（默认值：0.75 毫秒 * (1 + ilog(ncpus))，单位：纳秒）
   */
 -unsigned int sysctl_sched_min_granularity			= 750000ULL;
 -static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
@@ -9081,11 +9101,11 @@ name reflects this.</pre></div>
 +static unsigned int normalized_sysctl_sched_base_slice	= 750000ULL;
  
  /*
-  * After fork, child runs first. If set to 0 (default) then
+  * fork之后，child先跑。如果设置为 0（默认）则
 @@ -237,7 +237,7 @@ static void update_sysctl(void)
  
- #define SET_SYSCTL(name) \
- 	(sysctl_##name = (factor) * normalized_sysctl_##name)
+ #define SET_SYSCTL(名称) \
+ 	(sysctl_##名称 = (因子) * 标准化_sysctl_##名称)
 -	SET_SYSCTL(sched_min_granularity);
 +	SET_SYSCTL(sched_base_slice);
  #undef SET_SYSCTL
@@ -9093,17 +9113,17 @@ name reflects this.</pre></div>
  
 @@ -943,7 +943,7 @@ int sched_update_scaling(void)
  
- #define WRT_SYSCTL(name) \
- 	(normalized_sysctl_##name = sysctl_##name / (factor))
+ #define WRT_SYSCTL(名称) \
+ 	(归一化_sysctl_##名称 = sysctl_##名称 / (因子))
 -	WRT_SYSCTL(sched_min_granularity);
 +	WRT_SYSCTL(sched_base_slice);
  #undef WRT_SYSCTL
  
- 	return 0;
+ 	返回0；
 @@ -964,9 +964,9 @@ static void update_deadline(struct cfs_r
  	/*
- 	 * For EEVDF the virtual time slope is determined by w_i (iow.
- 	 * nice) while the request time r_i is determined by
+ 	 * 对于 EEVDF，虚拟时间斜率由 w_i (iow.
+ 	 * 很好）而请求时间 r_i 则由下式确定
 -	 * sysctl_sched_min_granularity.
 +	 * sysctl_sched_base_slice.
  	 */
@@ -9111,18 +9131,18 @@ name reflects this.</pre></div>
 +	se-&gt;slice = sysctl_sched_base_slice;
  
  	/*
- 	 * EEVDF: vd_i = ve_i + r_i / w_i
+ 	 * EEVDF：vd_i = ve_i + r_i / w_i
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
 @@ -2479,7 +2479,7 @@ extern void check_preempt_curr(struct rq
- extern const_debug unsigned int sysctl_sched_nr_migrate;
- extern const_debug unsigned int sysctl_sched_migration_cost;
+ 外部 const_debug 无符号 int sysctl_sched_nr_migrate；
+ extern const_debug unsigned int sysctl_sched_migration_cost；
  
 -extern unsigned int sysctl_sched_min_granularity;
 +extern unsigned int sysctl_sched_base_slice;
  
  #ifdef CONFIG_SCHED_DEBUG
- extern int sysctl_resched_latency_warn_ms;</pre>
+ 外部 int sysctl_resched_latency_warn_ms;</pre>
   </details>
 </div>
 
@@ -9143,7 +9163,8 @@ name reflects this.</pre></div>
       <div class="email-body"><pre>这允许 place_entity() 考虑 ENQUEUE_WAKEUP 和
 ENQUEUE_MIGRATED。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -9161,7 +9182,8 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 <div class="pg-cell"><pre>这允许 place_entity() 考虑 ENQUEUE_WAKEUP 和
 ENQUEUE_MIGRATED。</pre></div><div class="pg-cell pg-orig"><pre>This allows place_entity() to consider ENQUEUE_WAKEUP and
 ENQUEUE_MIGRATED.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -9172,37 +9194,37 @@ ENQUEUE_MIGRATED.</pre></div>
 
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -4909,7 +4909,7 @@ static inline void update_misfit_status(
+@@ -4909,7 +4909,7 @@ 静态内联 void update_misfit_status(
  #endif /* CONFIG_SMP */
  
- static void
+ 静态无效
 -place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 +place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
  {
  	u64 vslice = calc_delta_fair(se-&gt;slice, se);
  	u64 vruntime = avg_vruntime(cfs_rq);
 @@ -4998,7 +4998,7 @@ place_entity(struct cfs_rq *cfs_rq, stru
- 	 * on average, halfway through their slice, as such start tasks
- 	 * off with half a slice to ease into the competition.
+ 	 * 平均来说，在他们的切片的中间，这样开始任务
+ 	 * 减掉半片以轻松进入比赛。
  	 */
 -	if (sched_feat(PLACE_DEADLINE_INITIAL) &amp;&amp; initial)
 +	if (sched_feat(PLACE_DEADLINE_INITIAL) &amp;&amp; (flags &amp; ENQUEUE_INITIAL))
- 		vslice /= 2;
+ 		vs 切片 /= 2；
  
  	/*
 @@ -5021,7 +5021,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, st
- 	 * update_curr().
+ 	 * update_curr()。
  	 */
- 	if (curr)
+ 	如果（当前）
 -		place_entity(cfs_rq, se, 0);
 +		place_entity(cfs_rq, se, flags);
  
  	update_curr(cfs_rq);
  
 @@ -5048,7 +5048,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, st
- 	 * we can place the entity.
+ 	 * 我们可以放置实体。
  	 */
- 	if (!curr)
+ 	如果 (!curr)
 -		place_entity(cfs_rq, se, 0);
 +		place_entity(cfs_rq, se, flags);
  
@@ -9210,7 +9232,7 @@ ENQUEUE_MIGRATED.</pre></div>
  
 @@ -12053,7 +12053,7 @@ static void task_fork_fair(struct task_s
  	curr = cfs_rq-&gt;curr;
- 	if (curr)
+ 	如果（当前）
  		update_curr(cfs_rq);
 -	place_entity(cfs_rq, se, 1);
 +	place_entity(cfs_rq, se, ENQUEUE_INITIAL);
@@ -9219,13 +9241,13 @@ ENQUEUE_MIGRATED.</pre></div>
  
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -2174,6 +2174,7 @@ extern const u32		sched_prio_to_wmult[40
- #else
- #define ENQUEUE_MIGRATED	0x00
+@@ -2174,6 +2174,7 @@ extern const u32 sched_prio_to_wmult[40
+ #其他
+ #define ENQUEUE_MIGRATED 0x00
  #endif
 +#define ENQUEUE_INITIAL		0x80
  
- #define RETRY_TASK		((void *)-1UL)</pre>
+ #define RETRY_TASK ((void *)-1UL)</pre>
   </details>
 </div>
 
@@ -9255,7 +9277,8 @@ ENQUEUE_MIGRATED.</pre></div>
 注意：这依赖于 update_entity_lag() 来施加上述延迟限制
 一片。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -9294,7 +9317,8 @@ will cause preemption.</pre></div>
 <div class="pg-cell"><pre>注意：这依赖于 update_entity_lag() 来施加上述延迟限制
 一片。</pre></div><div class="pg-cell pg-orig"><pre>NOTE: this relies on update_entity_lag() to impose lag limits above
 a single slice.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -9307,22 +9331,22 @@ a single slice.</pre></div>
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -642,6 +642,7 @@ avg_vruntime_add(struct cfs_rq *cfs_rq,
- 	s64 key = entity_key(cfs_rq, se);
+ 	s64密钥=实体_密钥（cfs_rq，se）；
  
- 	cfs_rq-&gt;avg_vruntime += key * weight;
+ 	cfs_rq-&gt;avg_vruntime += 密钥 * 权重；
 +	cfs_rq-&gt;avg_slice += se-&gt;slice * weight;
- 	cfs_rq-&gt;avg_load += weight;
+ 	cfs_rq-&gt;avg_load += 重量；
  }
  
 @@ -652,6 +653,7 @@ avg_vruntime_sub(struct cfs_rq *cfs_rq,
- 	s64 key = entity_key(cfs_rq, se);
+ 	s64密钥=实体_密钥（cfs_rq，se）；
  
- 	cfs_rq-&gt;avg_vruntime -= key * weight;
+ 	cfs_rq-&gt;avg_vruntime -= 密钥 * 权重；
 +	cfs_rq-&gt;avg_slice -= se-&gt;slice * weight;
- 	cfs_rq-&gt;avg_load -= weight;
+ 	cfs_rq-&gt;avg_load -= 重量；
  }
  
-@@ -4908,6 +4910,21 @@ static inline void update_misfit_status(
+@@ -4908,6 +4910,21 @@ 静态内联 void update_misfit_status(
  
  #endif /* CONFIG_SMP */
  
@@ -9341,11 +9365,11 @@ a single slice.</pre></div>
 +	return (s64)(se-&gt;exec_start - now) &gt;= se-&gt;slice;
 +}
 +
- static void
- place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+ 静态无效
+ place_entity（结构 cfs_rq *cfs_rq，结构 sched_entity *se，int 标志）
  {
 @@ -4930,6 +4947,19 @@ place_entity(struct cfs_rq *cfs_rq, stru
- 		lag = se-&gt;vlag;
+ 		滞后 = se-&gt;vlag;
  
  		/*
 +		 * For latency sensitive tasks; those that have a shorter than
@@ -9361,29 +9385,29 @@ a single slice.</pre></div>
 +		}
 +
 +		/*
- 		 * If we want to place a task and preserve lag, we have to
- 		 * consider the effect of the new entity on the weighted
- 		 * average and compensate for this, otherwise lag can quickly
+ 		 * 如果我们想要放置任务并保持延迟，我们必须
+ 		 * 考虑新实体对权重的影响
+ 		 * 对此进行平均并进行补偿，否则会很快出现滞后
 --- a/kernel/sched/features.h
 +++ b/kernel/sched/features.h
 @@ -5,6 +5,7 @@
-  * sleep+wake cycles. EEVDF placement strategy #1, #2 if disabled.
+  * 睡眠+觉醒周期。 EEVDF 放置策略#1、#2（如果禁用）。
   */
- SCHED_FEAT(PLACE_LAG, true)
+ SCHED_FEAT（PLACE_LAG，真）
 +SCHED_FEAT(PLACE_FUDGE, true)
- SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
+ SCHED_FEAT（PLACE_DEADLINE_INITIAL，真）
  
  /*
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -555,6 +555,7 @@ struct cfs_rq {
- 	unsigned int		idle_h_nr_running; /* SCHED_IDLE */
+@@ -555,6 +555,7 @@ 结构 cfs_rq {
+ 	无符号整数idle_h_nr_running； /* SCHED_IDLE */
  
- 	s64			avg_vruntime;
+ 	s64 avg_vruntime；
 +	u64			avg_slice;
- 	u64			avg_load;
+ 	u64 avg_load；
  
- 	u64			exec_clock;</pre>
+ 	u64 执行时钟；</pre>
   </details>
 </div>
 <div class="replies"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length <span class="count-badge">2</span></summary><div class="email-card">
@@ -9602,7 +9626,7 @@ https://lkml.kernel.org/r/20230608124440.GB1002251@hirez.programming.kicks-ass.n
 
 也就是说，它应该是这样的：
 
-	增量=新-se-&gt;执行-&gt;启动
+增量=新-se-&gt;执行-&gt;启动
 	返回 delta/W &gt; vslice</pre></div>
     </div>
   </div>
@@ -9637,7 +9661,7 @@ That is, it should be something along the lines of:
 <div class="pg-cell"><pre>是的，还有：</pre></div><div class="pg-cell pg-orig"><pre>Yeah, also:</pre></div>
 <div class="pg-cell"><pre>https://lkml.kernel.org/r/20230608124440.GB1002251@hirez.programming.kicks-ass.net</pre></div><div class="pg-cell pg-orig"><pre>https://lkml.kernel.org/r/20230608124440.GB1002251@hirez.programming.kicks-ass.net</pre></div>
 <div class="pg-cell"><pre>也就是说，它应该是这样的：</pre></div><div class="pg-cell pg-orig"><pre>That is, it should be something along the lines of:</pre></div>
-<div class="pg-cell"><pre>	增量=新-se-&gt;执行-&gt;启动
+<div class="pg-cell"><pre>增量=新-se-&gt;执行-&gt;启动
 	返回 delta/W &gt; vslice</pre></div><div class="pg-cell pg-orig"><pre>	delta = new - se-&gt;exec-&gt;start
 	rerturn delta/W &gt; vslice</pre></div>
 </div>
@@ -9672,7 +9696,8 @@ Latency-nice 表示任务的延迟要求
 
 [peterz：变基，挤压]
 Signed-off-by: Parth Shah &lt;parth@linux.ibm.com&gt;
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -9715,7 +9740,8 @@ and conveys this task will get the least consideration and will thus
 receive maximal latency.</pre></div>
 <div class="pg-cell"><pre>[peterz：变基，挤压]
 Signed-off-by: Parth Shah &lt;parth@linux.ibm.com&gt;
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>[peterz: rebase, squash]
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>[peterz: rebase, squash]
 Signed-off-by: Parth Shah &lt;parth@linux.ibm.com&gt;
 Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
@@ -9734,27 +9760,27 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
 @@ -791,6 +791,7 @@ struct task_struct {
- 	int				static_prio;
- 	int				normal_prio;
- 	unsigned int			rt_priority;
+ 	int static_prio；
+ 	int 正常优先级；
+ 	无符号整型 rt_priority；
 +	int				latency_prio;
  
- 	struct sched_entity		se;
- 	struct sched_rt_entity		rt;
+ 	结构sched_entity se；
+ 	struct sched_rt_entity rt;
 --- a/include/uapi/linux/sched.h
 +++ b/include/uapi/linux/sched.h
-@@ -132,6 +132,7 @@ struct clone_args {
- #define SCHED_FLAG_KEEP_PARAMS		0x10
- #define SCHED_FLAG_UTIL_CLAMP_MIN	0x20
- #define SCHED_FLAG_UTIL_CLAMP_MAX	0x40
+@@ -132,6 +132,7 @@ 结构clone_args {
+ #定义SCHED_FLAG_KEEP_PARAMS 0x10
+ #定义SCHED_FLAG_UTIL_CLAMP_MIN 0x20
+ #定义SCHED_FLAG_UTIL_CLAMP_MAX 0x40
 +#define SCHED_FLAG_LATENCY_NICE		0x80
  
- #define SCHED_FLAG_KEEP_ALL	(SCHED_FLAG_KEEP_POLICY | \
- 				 SCHED_FLAG_KEEP_PARAMS)
-@@ -143,6 +144,7 @@ struct clone_args {
- 			 SCHED_FLAG_RECLAIM		| \
- 			 SCHED_FLAG_DL_OVERRUN		| \
- 			 SCHED_FLAG_KEEP_ALL		| \
+ #define SCHED_FLAG_KEEP_ALL (SCHED_FLAG_KEEP_POLICY | \
+ 				 SCHED_FLAG_KEEP_PARAMS）
+@@ -143,6 +144,7 @@ 结构clone_args {
+ 			 SCHED_FLAG_RECLAIM | \
+ 			 SCHED_FLAG_DL_OVERRUN | \
+ 			 SCHED_FLAG_KEEP_ALL | \
 -			 SCHED_FLAG_UTIL_CLAMP)
 +			 SCHED_FLAG_UTIL_CLAMP		| \
 +			 SCHED_FLAG_LATENCY_NICE)
@@ -9764,16 +9790,16 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 +++ b/include/uapi/linux/sched/types.h
 @@ -10,6 +10,7 @@ struct sched_param {
  
- #define SCHED_ATTR_SIZE_VER0	48	/* sizeof first published struct */
- #define SCHED_ATTR_SIZE_VER1	56	/* add: util_{min,max} */
+ #define SCHED_ATTR_SIZE_VER0 48 /* sizeof 第一个发布的结构 */
+ #define SCHED_ATTR_SIZE_VER1 56 /* 添加: util_{min,max} */
 +#define SCHED_ATTR_SIZE_VER2	60	/* add: latency_nice */
  
  /*
-  * Extended scheduling parameters data structure.
-@@ -98,6 +99,22 @@ struct sched_param {
-  * scheduled on a CPU with no more capacity than the specified value.
+  * 扩展调度参数数据结构。
+@@ -98,6 +99,22 @@ 结构 sched_param {
+  * 调度到容量不超过指定值的 CPU 上。
   *
-  * A task utilization boundary can be reset by setting the attribute to -1.
+  * 可以通过将该属性设置为 -1 来重置任务利用率边界。
 + *
 + * Latency Tolerance Attributes
 + * ===========================
@@ -9791,11 +9817,11 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 + * taken for a task requiring a lower latency as opposed to the task with
 + * higher latency_nice.
   */
- struct sched_attr {
- 	__u32 size;
-@@ -120,6 +137,8 @@ struct sched_attr {
- 	__u32 sched_util_min;
- 	__u32 sched_util_max;
+ 结构 sched_attr {
+ 	__u32 尺寸；
+@@ -120,6 +137,8 @@ 结构 sched_attr {
+ 	__u32 sched_util_min；
+ 	__u32 sched_util_max；
  
 +	/* latency requirement hints */
 +	__s32 sched_latency_nice;
@@ -9805,44 +9831,44 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 --- a/init/init_task.c
 +++ b/init/init_task.c
 @@ -78,6 +78,7 @@ struct task_struct init_task
- 	.prio		= MAX_PRIO - 20,
- 	.static_prio	= MAX_PRIO - 20,
- 	.normal_prio	= MAX_PRIO - 20,
+ 	.prio = MAX_PRIO - 20,
+ 	.static_prio = MAX_PRIO - 20，
+ 	.normal_prio = MAX_PRIO - 20,
 +	.latency_prio	= DEFAULT_PRIO,
- 	.policy		= SCHED_NORMAL,
- 	.cpus_ptr	= &amp;init_task.cpus_mask,
- 	.user_cpus_ptr	= NULL,
+ 	.policy = SCHED_NORMAL，
+ 	.cpus_ptr = &amp;init_task.cpus_mask,
+ 	.user_cpus_ptr = NULL,
 @@ -89,7 +90,7 @@ struct task_struct init_task
  		.fn = do_no_restart_syscall,
  	},
- 	.se		= {
+ 	.se = {
 -		.group_node 	= LIST_HEAD_INIT(init_task.se.group_node),
 +		.group_node	= LIST_HEAD_INIT(init_task.se.group_node),
  	},
- 	.rt		= {
- 		.run_list	= LIST_HEAD_INIT(init_task.rt.run_list),
+ 	.rt = {
+ 		.run_list = LIST_HEAD_INIT(init_task.rt.run_list),
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -4719,6 +4719,8 @@ int sched_fork(unsigned long clone_flags
+@@ -4719,6 +4719,8 @@ int sched_fork(无符号长clone_flags
  		p-&gt;prio = p-&gt;normal_prio = p-&gt;static_prio;
- 		set_load_weight(p, false);
+ 		set_load_weight（p，假）；
  
 +		p-&gt;latency_prio = NICE_TO_PRIO(0);
 +
  		/*
- 		 * We don&#x27;t need the reset flag anymore after the fork. It has
- 		 * fulfilled its duty:
-@@ -7477,7 +7479,7 @@ static struct task_struct *find_process_
- #define SETPARAM_POLICY	-1
+ 		 * 分叉后我们不再需要重置标志。它有
+ 		 * 履行职责：
+@@ -7477,7 +7479,7 @@静态结构task_struct *find_process_
+ #定义SETPARAM_POLICY -1
  
- static void __setscheduler_params(struct task_struct *p,
+ 静态无效__setscheduler_params（结构task_struct * p，
 -		const struct sched_attr *attr)
 +				  const struct sched_attr *attr)
  {
- 	int policy = attr-&gt;sched_policy;
+ 	int 策略 = attr-&gt;sched_policy;
  
 @@ -7501,6 +7503,13 @@ static void __setscheduler_params(struct
- 	set_load_weight(p, true);
+ 	set_load_weight(p, 真);
  }
  
 +static void __setscheduler_latency(struct task_struct *p,
@@ -9853,10 +9879,10 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 +}
 +
  /*
-  * Check the target process has a UID that matches the current process&#x27;s:
+  * 检查目标进程是否有与当前进程匹配的 UID：
   */
 @@ -7641,6 +7650,13 @@ static int __sched_setscheduler(struct t
- 			return retval;
+ 			返回retval；
  	}
  
 +	if (attr-&gt;sched_flags &amp; SCHED_FLAG_LATENCY_NICE) {
@@ -9866,19 +9892,19 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 +			return -EINVAL;
 +	}
 +
- 	if (pi)
+ 	如果（圆周率）
  		cpuset_read_lock();
  
 @@ -7675,6 +7691,9 @@ static int __sched_setscheduler(struct t
- 			goto change;
+ 			去改变；
  		if (attr-&gt;sched_flags &amp; SCHED_FLAG_UTIL_CLAMP)
- 			goto change;
+ 			去改变；
 +		if (attr-&gt;sched_flags &amp; SCHED_FLAG_LATENCY_NICE &amp;&amp;
 +		    attr-&gt;sched_latency_nice != PRIO_TO_NICE(p-&gt;latency_prio))
 +			goto change;
  
  		p-&gt;sched_reset_on_fork = reset_on_fork;
- 		retval = 0;
+ 		检索值=0；
 @@ -7763,6 +7782,7 @@ static int __sched_setscheduler(struct t
  		__setscheduler_params(p, attr);
  		__setscheduler_prio(p, newprio);
@@ -9886,17 +9912,17 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 +	__setscheduler_latency(p, attr);
  	__setscheduler_uclamp(p, attr);
  
- 	if (queued) {
+ 	如果（排队）{
 @@ -7973,6 +7993,9 @@ static int sched_copy_attr(struct sched_
- 	    size &lt; SCHED_ATTR_SIZE_VER1)
- 		return -EINVAL;
+ 	    大小 &lt; SCHED_ATTR_SIZE_VER1)
+ 		返回-EINVAL；
  
 +	if ((attr-&gt;sched_flags &amp; SCHED_FLAG_LATENCY_NICE) &amp;&amp;
 +	    size &lt; SCHED_ATTR_SIZE_VER2)
 +		return -EINVAL;
  	/*
- 	 * XXX: Do we want to be lenient like existing syscalls; or do we want
- 	 * to be strict and return an error on out-of-bounds values?
+ 	 * XXX：我们是否想要像现有的系统调用一样宽松；或者我们想要
+ 	 * 要严格并在超出范围的值上返回错误？
 @@ -8210,6 +8233,8 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pi
  	get_params(p, &amp;kattr);
  	kattr.sched_flags &amp;= SCHED_FLAG_ALL;
@@ -9905,31 +9931,31 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 +
  #ifdef CONFIG_UCLAMP_TASK
  	/*
- 	 * This could race with another potential updater, but this is fine
+* 这可能会与另一个潜在的更新程序竞争，但这很好
 --- a/kernel/sched/debug.c
 +++ b/kernel/sched/debug.c
 @@ -1085,6 +1085,7 @@ void proc_sched_show_task(struct task_st
  #endif
- 	P(policy);
- 	P(prio);
+ 	P（政策）；
+ 	P(先验);
 +	P(latency_prio);
- 	if (task_has_dl_policy(p)) {
- 		P(dl.runtime);
- 		P(dl.deadline);
+ 	如果（task_has_dl_policy（p））{
+ 		P(dl.运行时);
+ 		P(dl.截止日期);
 --- a/tools/include/uapi/linux/sched.h
 +++ b/tools/include/uapi/linux/sched.h
-@@ -132,6 +132,7 @@ struct clone_args {
- #define SCHED_FLAG_KEEP_PARAMS		0x10
- #define SCHED_FLAG_UTIL_CLAMP_MIN	0x20
- #define SCHED_FLAG_UTIL_CLAMP_MAX	0x40
+@@ -132,6 +132,7 @@ 结构clone_args {
+ #定义SCHED_FLAG_KEEP_PARAMS 0x10
+ #定义SCHED_FLAG_UTIL_CLAMP_MIN 0x20
+ #定义SCHED_FLAG_UTIL_CLAMP_MAX 0x40
 +#define SCHED_FLAG_LATENCY_NICE		0x80
  
- #define SCHED_FLAG_KEEP_ALL	(SCHED_FLAG_KEEP_POLICY | \
- 				 SCHED_FLAG_KEEP_PARAMS)
-@@ -143,6 +144,7 @@ struct clone_args {
- 			 SCHED_FLAG_RECLAIM		| \
- 			 SCHED_FLAG_DL_OVERRUN		| \
- 			 SCHED_FLAG_KEEP_ALL		| \
+ #define SCHED_FLAG_KEEP_ALL (SCHED_FLAG_KEEP_POLICY | \
+ 				 SCHED_FLAG_KEEP_PARAMS）
+@@ -143,6 +144,7 @@ 结构clone_args {
+ 			 SCHED_FLAG_RECLAIM | \
+ 			 SCHED_FLAG_DL_OVERRUN | \
+ 			 SCHED_FLAG_KEEP_ALL | \
 -			 SCHED_FLAG_UTIL_CLAMP)
 +			 SCHED_FLAG_UTIL_CLAMP		| \
 +			 SCHED_FLAG_LATENCY_NICE)
@@ -9958,13 +9984,14 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 
 给定 3 [ms] 的基本切片，这给出的范围为：
 
-  延迟好 19: 3*1024 / 15 ~= 204.8 [毫秒]
+延迟好 19: 3*1024 / 15 ~= 204.8 [毫秒]
   延迟-20: 3*1024 / 88761 ~= 0.034 [ms]
 
 （这可能没有意义）
 
 Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
-Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div>
+Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -9994,12 +10021,13 @@ Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div>
 specifically apply the inverse sched_prio_to_weight[] relation on
 base_slice.</pre></div>
 <div class="pg-cell"><pre>给定 3 [ms] 的基本切片，这给出的范围为：</pre></div><div class="pg-cell pg-orig"><pre>Given a base slice of 3 [ms], this gives a range of:</pre></div>
-<div class="pg-cell"><pre>  延迟好 19: 3*1024 / 15 ~= 204.8 [毫秒]
+<div class="pg-cell"><pre>延迟好 19: 3*1024 / 15 ~= 204.8 [毫秒]
   延迟-20: 3*1024 / 88761 ~= 0.034 [ms]</pre></div><div class="pg-cell pg-orig"><pre>  latency-nice  19: 3*1024 / 15    ~= 204.8 [ms]
   latency-nice -20: 3*1024 / 88761 ~= 0.034 [ms]</pre></div>
 <div class="pg-cell"><pre>（这可能没有意义）</pre></div><div class="pg-cell pg-orig"><pre>(which might not make sense)</pre></div>
 <div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
-Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
 Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div>
 </div>
 </details>
@@ -10024,31 +10052,31 @@ Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div>
 +
  #ifdef CONFIG_UCLAMP_TASK
  /*
-  * Serializes updates of utilization clamp values
+  * 序列化利用率钳位值的更新
 @@ -4464,9 +4470,10 @@ static void __sched_fork(unsigned long c
- 	p-&gt;se.nr_migrations		= 0;
- 	p-&gt;se.vruntime			= 0;
- 	p-&gt;se.vlag			= 0;
+ 	p-&gt;se.nr_migrations = 0;
+ 	p-&gt;se.vruntime = 0;
+ 	p-&gt;se.vlag = 0;
 -	p-&gt;se.slice			= sysctl_sched_base_slice;
  	INIT_LIST_HEAD(&amp;p-&gt;se.group_node);
  
 +	set_latency_prio(p, p-&gt;latency_prio);
 +
  #ifdef CONFIG_FAIR_GROUP_SCHED
- 	p-&gt;se.cfs_rq			= NULL;
+ 	p-&gt;se.cfs_rq = NULL;
  #endif
 @@ -4718,8 +4725,7 @@ int sched_fork(unsigned long clone_flags
  
  		p-&gt;prio = p-&gt;normal_prio = p-&gt;static_prio;
- 		set_load_weight(p, false);
+ 		set_load_weight（p，假）；
 -
 -		p-&gt;latency_prio = NICE_TO_PRIO(0);
 +		set_latency_prio(p, NICE_TO_PRIO(0));
  
  		/*
- 		 * We don&#x27;t need the reset flag anymore after the fork. It has
+ 		 * 分叉后我们不再需要重置标志。它有
 @@ -7507,7 +7513,7 @@ static void __setscheduler_latency(struc
- 				   const struct sched_attr *attr)
+ 				   const 结构 sched_attr *attr)
  {
  	if (attr-&gt;sched_flags &amp; SCHED_FLAG_LATENCY_NICE)
 -		p-&gt;latency_prio = NICE_TO_PRIO(attr-&gt;sched_latency_nice);
@@ -10077,11 +10105,11 @@ Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div>
 +	se-&gt;slice = div_u64(base &lt;&lt; SCHED_FIXEDPOINT_SHIFT, weight);
 +}
 +
- static void clear_buddies(struct cfs_rq *cfs_rq, struct sched_entity *se);
+ 静态无效clear_buddies（结构cfs_rq * cfs_rq，结构sched_entity * se）；
  
  /*
 @@ -964,13 +979,6 @@ static void update_deadline(struct cfs_r
- 		return;
+ 		返回；
  
  	/*
 -	 * For EEVDF the virtual time slope is determined by w_i (iow.
@@ -10091,9 +10119,9 @@ Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div>
 -	se-&gt;slice = sysctl_sched_base_slice;
 -
 -	/*
- 	 * EEVDF: vd_i = ve_i + r_i / w_i
+ 	 * EEVDF：vd_i = ve_i + r_i / w_i
  	 */
- 	se-&gt;deadline = se-&gt;vruntime + calc_delta_fair(se-&gt;slice, se);
+ 	se-&gt;截止日期 = se-&gt;vruntime + calc_delta_fair(se-&gt;slice, se);
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
 @@ -2495,6 +2495,8 @@ extern unsigned int sysctl_numa_balancin
@@ -10456,7 +10484,7 @@ interesting case.</pre></div>
 这就是 FUDGE hack 发挥作用的地方，除了我错了，我想
 它需要是这样的：
 
-	if (delta / W &gt;= vslice) {
+if (delta / W &gt;= vslice) {
 		se-&gt;vlag += vslice
 		if (se-&gt;vlag &gt; 0)
 			se-&gt;vlag = 0;
@@ -10509,7 +10537,7 @@ wakeup-preemption can make it go quickly on the next period.</pre></div>
 <div class="pg-cell"><pre>这就是 FUDGE hack 发挥作用的地方，除了我错了，我想
 它需要是这样的：</pre></div><div class="pg-cell pg-orig"><pre>This is where that FUDGE hack comes in, except I got it wrong, I think
 it needs to be something like:</pre></div>
-<div class="pg-cell"><pre>	if (delta / W &gt;= vslice) {
+<div class="pg-cell"><pre>if (delta / W &gt;= vslice) {
 		se-&gt;vlag += vslice
 		if (se-&gt;vlag &gt; 0)
 			se-&gt;vlag = 0;
@@ -10653,7 +10681,8 @@ far worse latency effects than any gains from other parts.</pre></div>
 Signed-off-by: Vincent Guittot &lt;vincent.guittot@linaro.org&gt;
 Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
 Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;
-Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.org</pre></div>
+Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.org
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -10692,7 +10721,8 @@ is then used to set the offset of the sched_entities of the group.</pre></div>
 <div class="pg-cell"><pre>Signed-off-by: Vincent Guittot &lt;vincent.guittot@linaro.org&gt;
 Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
 Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;
-Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.org</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Vincent Guittot &lt;vincent.guittot@linaro.org&gt;
+Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.org
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Vincent Guittot &lt;vincent.guittot@linaro.org&gt;
 Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
 Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;
 Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.org</pre></div>
@@ -10708,9 +10738,9 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
 
 --- a/Documentation/admin-guide/cgroup-v2.rst
 +++ b/Documentation/admin-guide/cgroup-v2.rst
-@@ -1121,6 +1121,16 @@ All time durations are in microseconds.
-         values similar to the sched_setattr(2). This maximum utilization
-         value is used to clamp the task specific maximum utilization clamp.
+@@ -1121,6 +1121,16 @@ 所有持续时间均以微秒为单位。
+         值类似于 sched_setattr(2)。这个最大利用率
+         值用于限制任务特定的最大利用率限制。
  
 +  cpu.latency.nice
 +	A read-write single value file which exists on non-root
@@ -10724,12 +10754,12 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
 +	group.
  
  
- Memory
+ 内存
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -11177,6 +11177,25 @@ static int cpu_idle_write_s64(struct cgr
  {
- 	return sched_group_set_idle(css_tg(css), idle);
+ 	返回 sched_group_set_idle(css_tg(css), 空闲);
  }
 +
 +static s64 cpu_latency_nice_read_s64(struct cgroup_subsys_state *css,
@@ -10752,7 +10782,7 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
 +}
  #endif
  
- static struct cftype cpu_legacy_files[] = {
+ 静态结构 cftype cpu_legacy_files[] = {
 @@ -11191,6 +11210,11 @@ static struct cftype cpu_legacy_files[]
  		.read_s64 = cpu_idle_read_s64,
  		.write_s64 = cpu_idle_write_s64,
@@ -10781,9 +10811,9 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -12293,6 +12293,7 @@ int alloc_fair_sched_group(struct task_g
- 		goto err;
+ 		转到错误；
  
- 	tg-&gt;shares = NICE_0_LOAD;
+ 	tg-&gt;股= NICE_0_LOAD;
 +	tg-&gt;latency_prio = DEFAULT_PRIO;
  
  	init_cfs_bandwidth(tg_cfs_bandwidth(tg));
@@ -10791,17 +10821,17 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
 @@ -12391,6 +12392,9 @@ void init_tg_cfs_entry(struct task_group
  	}
  
- 	se-&gt;my_q = cfs_rq;
+ 	se-&gt;my_q = cfs_rq；
 +
 +	set_latency_fair(se, tg-&gt;latency_prio - MAX_RT_PRIO);
 +
- 	/* guarantee group entities always have weight */
- 	update_load_set(&amp;se-&gt;load, NICE_0_LOAD);
- 	se-&gt;parent = parent;
+ 	/* 保证组实体总是有权重 */
+ 	update_load_set(&amp;se-&gt;加载, NICE_0_LOAD);
+ 	se-&gt;父=父；
 @@ -12519,6 +12523,29 @@ int sched_group_set_idle(struct task_gro
  
  	mutex_unlock(&amp;shares_mutex);
- 	return 0;
+ 	返回0；
 +}
 +
 +int sched_group_set_latency(struct task_group *tg, int prio)
@@ -10830,24 +10860,24 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
  #else /* CONFIG_FAIR_GROUP_SCHED */
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
-@@ -378,6 +378,8 @@ struct task_group {
+@@ -378,6 +378,8 @@ 结构任务组 {
  
- 	/* A positive value indicates that this is a SCHED_IDLE group. */
- 	int			idle;
+ 	/* 正值表示这是一个 SCHED_IDLE 组。 */
+ 	int 空闲；
 +	/* latency priority of the group. */
 +	int			latency_prio;
  
- #ifdef	CONFIG_SMP
+ #ifdef CONFIG_SMP
  	/*
 @@ -488,6 +490,8 @@ extern int sched_group_set_shares(struct
  
- extern int sched_group_set_idle(struct task_group *tg, long idle);
+ extern int sched_group_set_idle(struct task_group *tg, 长空闲);
  
 +extern int sched_group_set_latency(struct task_group *tg, int prio);
 +
  #ifdef CONFIG_SMP
  extern void set_task_rq_fair(struct sched_entity *se,
- 			     struct cfs_rq *prev, struct cfs_rq *next);</pre>
+ 			     结构 cfs_rq *上一个，结构 cfs_rq *下一个）；</pre>
   </details>
 </div>
 
@@ -10876,7 +10906,8 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
 将引入不适当的抢占，而使用较大的值将
 减少延迟。
 
-Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -10912,7 +10943,8 @@ which is 1/10 the size of HZ=1000 and 10 times the size of HZ=100.</pre></div>
 confidence interval (95%+) as the target slice. Using a smaller slice
 will introduce undue preemptions, while using a larger value will
 reduce latency.</pre></div>
-<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
+<div class="pg-cell"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
@@ -10924,7 +10956,7 @@ reduce latency.</pre></div>
 +++ b/kernel/sched/core.c
 @@ -7494,10 +7494,18 @@ static void __setscheduler_params(struct
  
- 	p-&gt;policy = policy;
+ 	p-&gt;策略=策略；
  
 -	if (dl_policy(policy))
 +	if (dl_policy(policy)) {
@@ -10942,18 +10974,18 @@ reduce latency.</pre></div>
 +	}
  
  	/*
- 	 * __sched_setscheduler() ensures attr-&gt;sched_priority == 0 when
+ 	 * __sched_setscheduler() 确保 attr-&gt;sched_priority == 0 时
 @@ -7689,7 +7697,9 @@ static int __sched_setscheduler(struct t
- 	 * but store a possible modification of reset_on_fork.
+ 	 * 但存储reset_on_fork的可能修改。
  	 */
- 	if (unlikely(policy == p-&gt;policy)) {
+ 	if (不太可能(策略 == p-&gt;策略)) {
 -		if (fair_policy(policy) &amp;&amp; attr-&gt;sched_nice != task_nice(p))
 +		if (fair_policy(policy) &amp;&amp;
 +		    (attr-&gt;sched_nice != task_nice(p) ||
 +		     (attr-&gt;sched_runtime &amp;&amp; attr-&gt;sched_runtime != p-&gt;se.slice)))
- 			goto change;
+ 			去改变；
  		if (rt_policy(policy) &amp;&amp; attr-&gt;sched_priority != p-&gt;rt_priority)
- 			goto change;
+ 			去改变；
 @@ -8017,12 +8027,14 @@ static int sched_copy_attr(struct sched_
  
  static void get_params(struct task_struct *p, struct sched_attr *attr)
@@ -11132,7 +11164,7 @@ want to keep your allocated running time.</pre></div>
 1ms 的切片。  完美的时间表是直接 FIFO
 4 个任务轮换，每个任务 1 毫秒，总周期为 4 毫秒。
 
-  ABCDABCD...
+ABCDABCD...
   +---+---+---+---
 
 通过保持任务的顺序相同，我们确保最大延迟是
@@ -11141,7 +11173,7 @@ want to keep your allocated running time.</pre></div>
 命中，第一个任务现在必须等待 7 毫秒，而不是
 通常为 3 毫秒。
 
-  ABCDDBCA...
+ABCDDBCA...
   +---+---+---+---
 
 到目前为止如此明显和无聊..
@@ -11151,7 +11183,7 @@ want to keep your allocated running time.</pre></div>
 它需要 2ms，所以它需要保存并存储第一个插槽，所以你
 得到一个像这样的时间表：
 
-  ABCABCDDABCABCDD...
+ABCABCDDABCABCDD...
   +---+---+---+---+---
 
 在这里您可以看到总周期变为 8 (N*r_max)。的
@@ -11162,12 +11194,12 @@ want to keep your allocated running time.</pre></div>
 更复杂的例子是 3 个任务：A(w=1,r=1)、B(w=1,r=1)、
 C(w=2,r=1) [保持 4ms 周期]:
 
-  CCABCCA...
+CCABCCA...
   +---+---+---+---
 
 如果我们将 B 的切片更改为 2，则变为：
 
-  CCACCABBCCACCABB...
+CCACCABBCCACCABB...
   +---+---+---+---+---
 
 所以总周期为W*r_max (8ms)，每个任务将平均为一个周期
@@ -11369,7 +11401,7 @@ how to look at it.</pre></div>
 4 个任务轮换，每个任务 1 毫秒，总周期为 4 毫秒。</pre></div><div class="pg-cell pg-orig"><pre>Consider 4 equal-weight always running tasks (A,B,C,D) with a default
 slice of 1ms.  The perfect schedule for this is a straight up FIFO
 rotation of the 4 tasks, 1ms each for a total period of 4ms.</pre></div>
-<div class="pg-cell"><pre>  ABCDABCD...
+<div class="pg-cell"><pre>ABCDABCD...
   +---+---+---+---</pre></div><div class="pg-cell pg-orig"><pre>  ABCDABCD...
   +---+---+---+---</pre></div>
 <div class="pg-cell"><pre>通过保持任务的顺序相同，我们确保最大延迟是
@@ -11381,7 +11413,7 @@ min latency -- consistency is king. If for one period you were to
 say flip the first and last tasks in the order, your max latency takes a
 hit, the task that was first will now have to wait 7ms instead of it&#x27;s
 usual 3ms.</pre></div>
-<div class="pg-cell"><pre>  ABCDDBCA...
+<div class="pg-cell"><pre>ABCDDBCA...
   +---+---+---+---</pre></div><div class="pg-cell pg-orig"><pre>  ABCDDBCA...
   +---+---+---+---</pre></div>
 <div class="pg-cell"><pre>到目前为止如此明显和无聊..</pre></div><div class="pg-cell pg-orig"><pre>So far so obvious and boring..</pre></div>
@@ -11392,7 +11424,7 @@ usual 3ms.</pre></div>
 that it can&#x27;t run the first time, because the slice rotations are 1ms,
 and it needs 2ms, so it needs to save up and bank the first slot, so you
 get a schedule like:</pre></div>
-<div class="pg-cell"><pre>  ABCABCDDABCABCDD...
+<div class="pg-cell"><pre>ABCABCDDABCABCDD...
   +---+---+---+---+---</pre></div><div class="pg-cell pg-orig"><pre>  ABCABCDDABCABCDD...
   +---+---+---+---+---</pre></div>
 <div class="pg-cell"><pre>在这里您可以看到总周期变为 8 (N*r_max)。的
@@ -11403,11 +11435,11 @@ the 2ms task is 8ms.</pre></div>
 <div class="pg-cell"><pre>更复杂的例子是 3 个任务：A(w=1,r=1)、B(w=1,r=1)、
 C(w=2,r=1) [保持 4ms 周期]:</pre></div><div class="pg-cell pg-orig"><pre>A more complex example would be 3 tasks: A(w=1,r=1), B(w=1,r=1),
 C(w=2,r=1) [to keep the 4ms period]:</pre></div>
-<div class="pg-cell"><pre>  CCABCCA...
+<div class="pg-cell"><pre>CCABCCA...
   +---+---+---+---</pre></div><div class="pg-cell pg-orig"><pre>  CCABCCAB...
   +---+---+---+---</pre></div>
 <div class="pg-cell"><pre>如果我们将 B 的切片更改为 2，则变为：</pre></div><div class="pg-cell pg-orig"><pre>If we change the slice of B to 2 then it becomes:</pre></div>
-<div class="pg-cell"><pre>  CCACCABBCCACCABB...
+<div class="pg-cell"><pre>CCACCABBCCACCABB...
   +---+---+---+---+---</pre></div><div class="pg-cell pg-orig"><pre>  CCACCABBCCACCABB...
   +---+---+---+---+---</pre></div>
 <div class="pg-cell"><pre>所以总周期为W*r_max (8ms)，每个任务将平均为一个周期
@@ -11498,8 +11530,9 @@ suffer preemption.</pre></div>
 tools/lib/rbtree.c)，所以希望这个实现不会错过任何
 极端情况。
 
-修复：147f3efaa241（“sched/fair：实施类似 EEVDF 的调度策略”）
-Signed-off-by: Ben Segall &lt;bsegall@google.com&gt;</pre></div>
+Fixes: 147f3efaa241 (&quot;sched/fair: Implement an EEVDF-like scheduling policy&quot;)
+Signed-off-by: Ben Segall &lt;bsegall@google.com&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -11545,8 +11578,9 @@ tools/lib/rbtree.c)，所以希望这个实现不会错过任何
 极端情况。</pre></div><div class="pg-cell pg-orig"><pre>I&#x27;ve run this through a userspace stress test (thank you
 tools/lib/rbtree.c), so hopefully this implementation doesn&#x27;t miss any
 corner cases.</pre></div>
-<div class="pg-cell"><pre>修复：147f3efaa241（“sched/fair：实施类似 EEVDF 的调度策略”）
-Signed-off-by: Ben Segall &lt;bsegall@google.com&gt;</pre></div><div class="pg-cell pg-orig"><pre>Fixes: 147f3efaa241 (&quot;sched/fair: Implement an EEVDF-like scheduling policy&quot;)
+<div class="pg-cell"><pre>Fixes: 147f3efaa241 (&quot;sched/fair: Implement an EEVDF-like scheduling policy&quot;)
+Signed-off-by: Ben Segall &lt;bsegall@google.com&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Fixes: 147f3efaa241 (&quot;sched/fair: Implement an EEVDF-like scheduling policy&quot;)
 Signed-off-by: Ben Segall &lt;bsegall@google.com&gt;</pre></div>
 </div>
 </details>
@@ -11556,34 +11590,34 @@ Signed-off-by: Ben Segall &lt;bsegall@google.com&gt;</pre></div>
  1 file changed, 58 insertions(+), 14 deletions(-)
 
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 0c31cda0712f..77e9440b8ab3 100644
+索引 0c31cda0712f..77e9440b8ab3 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -864,18 +864,20 @@ struct sched_entity *__pick_first_entity(struct cfs_rq *cfs_rq)
   *
-  *  se-&gt;min_deadline = min(se-&gt;deadline, se-&gt;{left,right}-&gt;min_deadline)
+  * se-&gt;min_deadline = min(se-&gt;deadline, se-&gt;{左,右}-&gt;min_deadline)
   *
-  * Which allows an EDF like search on (sub)trees.
+  * 允许在（子）树上进行类似 EDF 的搜索。
   */
 -static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 +static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq)
  {
  	struct rb_node *node = cfs_rq-&gt;tasks_timeline.rb_root.rb_node;
  	struct sched_entity *curr = cfs_rq-&gt;curr;
- 	struct sched_entity *best = NULL;
+ 	结构 sched_entity *best = NULL;
 +	struct sched_entity *best_left = NULL;
  
  	if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
- 		curr = NULL;
+ 		当前=空；
 +	best = curr;
  
  	/*
- 	 * Once selected, run a task until it either becomes non-eligible or
- 	 * until it gets a new slice. See the HACK in set_next_entity().
+ 	 * 一旦选择，运行一个任务，直到它变得不符合条件或
+ 	 * 直到获得新的切片。请参阅 set_next_entity() 中的 HACK。
  	 */
-@@ -892,45 +894,87 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
- 			node = node-&gt;rb_left;
- 			continue;
+@@ -892,45 +894,87 @@静态结构sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
+ 			节点=节点-&gt;rb_left；
+ 			继续;
  		}
  
  		/*
@@ -11594,7 +11628,7 @@ index 0c31cda0712f..77e9440b8ab3 100644
  		 */
 -		if (!best || deadline_gt(deadline, best, se)) {
 +		if (!best || deadline_gt(deadline, best, se))
- 			best = se;
+ 			最好=se；
 -			if (best-&gt;deadline == best-&gt;min_deadline)
 -				break;
 -		}
@@ -11648,14 +11682,14 @@ index 0c31cda0712f..77e9440b8ab3 100644
 +			return se;
 +
 +		/* min_deadline is in the left branch */
- 		if (node-&gt;rb_left &amp;&amp;
- 		    __node_2_se(node-&gt;rb_left)-&gt;min_deadline == se-&gt;min_deadline) {
- 			node = node-&gt;rb_left;
- 			continue;
+ 		if (节点-&gt;rb_left &amp;&amp;
+ 		    __node_2_se(节点-&gt;rb_left)-&gt;min_deadline == se-&gt;min_deadline) {
+ 			节点=节点-&gt;rb_left；
+ 			继续;
  		}
  
 +		/* else min_deadline is in the right branch */
- 		node = node-&gt;rb_right;
+ 		节点=节点-&gt;rb_right；
  	}
 +	return NULL;
 +}
@@ -11669,9 +11703,9 @@ index 0c31cda0712f..77e9440b8ab3 100644
 -	if (unlikely(!best)) {
 +	if (!se) {
  		struct sched_entity *left = __pick_first_entity(cfs_rq);
- 		if (left) {
- 			pr_err(&quot;EEVDF scheduling fail, picking leftmost\n&quot;);
- 			return left;
+ 		如果（左）{
+ 			pr_err(&quot;EEVDF调度失败，选择最左边\n&quot;);
+ 			向左返回；
  		}
  	}
  
@@ -11680,10 +11714,10 @@ index 0c31cda0712f..77e9440b8ab3 100644
  }
  
  #ifdef CONFIG_SCHED_DEBUG
- struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
+ 结构 sched_entity *__pick_last_entity(结构 cfs_rq *cfs_rq)
  {
 -- 
-2.42.0.582.g8ccd20d70d-goog</pre>
+2.42.0.582.g8ccd20d70d-谷歌</pre>
   </details>
 </div>
 <div class="replies"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se</summary><div class="email-card">
@@ -12039,7 +12073,7 @@ Abel Wu &lt;wuyun.abel@bytedance.com&gt; 写道：
 	结构 sched_entity *cand = NULL;
 	布尔 all_eligible = false;
 
-	while (节点 || cand) {
+while (节点 || cand) {
 		struct sched_entity *se = __node_2_se(节点);
 		如果（！节点）{
 			BUG_ON(!cand);
@@ -12048,7 +12082,7 @@ Abel Wu &lt;wuyun.abel@bytedance.com&gt; 写道：
 			all_eligible = true；
 			坎德=空；
 
-			/*
+/*
 			 * 我们的初始过程遇到了一个符合条件的节点，即
 			 * 本身就是最好的
 			 */
@@ -12056,7 +12090,7 @@ Abel Wu &lt;wuyun.abel@bytedance.com&gt; 写道：
 				打破；
 		}
 
-		/*
+/*
 		 * 如果该实体不符合条件，请尝试左子树。
 		 */
 		if (!all_eligible &amp;&amp; !entity_eligible(cfs_rq, se)) {
@@ -12064,19 +12098,19 @@ Abel Wu &lt;wuyun.abel@bytedance.com&gt; 写道：
 			继续;
 		}
 
-		if (节点-&gt;rb_left) {
+if (节点-&gt;rb_left) {
 			struct sched_entity *left = __node_2_se(node-&gt;rb_left);
 
-			BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);
+BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);
 
-			/* vruntime 上的决胜局 */
+/* vruntime 上的决胜局 */
 			if (left-&gt;min_deadline == se-&gt;min_deadline) {
 				节点=节点-&gt;rb_left；
 				all_eligible = true；
 				继续;
 			}
 
-			如果（！all_eligible）{
+如果（！all_eligible）{
 				/*
 				 * 我们要搜索右子树和那个
 				 * 带min_deadline的可以是不符合条件的，所以记录一下
@@ -12087,10 +12121,10 @@ Abel Wu &lt;wuyun.abel@bytedance.com&gt; 写道：
 			}
 		}
 
-		if (!all_eligible &amp;&amp; (!best || period_gt(deadline, best, se)))
+if (!all_eligible &amp;&amp; (!best || period_gt(deadline, best, se)))
 			最好=se；
 
-		/* min_deadline就在这个节点，不用往右看*/
+/* min_deadline就在这个节点，不用往右看*/
 		if (se-&gt;deadline == se-&gt;min_deadline) {
 			if (all_eligible &amp;&amp; (!best || period_gte(deadline, best, se)))
 				最好=se；
@@ -12100,10 +12134,10 @@ Abel Wu &lt;wuyun.abel@bytedance.com&gt; 写道：
 			继续;
 		}
 
-		节点=节点-&gt;rb_right；
+节点=节点-&gt;rb_right；
 	}
 
-	返回最好的；
+返回最好的；
 }
 
 这在 vruntime 的抢七条件下表现得和
@@ -12308,7 +12342,7 @@ should do):</pre></div>
 	struct sched_entity *best = NULL;
 	struct sched_entity *cand = NULL;
 	bool all_eligible = false;</pre></div>
-<div class="pg-cell"><pre>	while (节点 || cand) {
+<div class="pg-cell"><pre>while (节点 || cand) {
 		struct sched_entity *se = __node_2_se(节点);
 		如果（！节点）{
 			BUG_ON(!cand);
@@ -12323,7 +12357,7 @@ should do):</pre></div>
 			se = __node_2_se(node);
 			all_eligible = true;
 			cand = NULL;</pre></div>
-<div class="pg-cell"><pre>			/*
+<div class="pg-cell"><pre>/*
 			 * 我们的初始过程遇到了一个符合条件的节点，即
 			 * 本身就是最好的
 			 */
@@ -12336,7 +12370,7 @@ should do):</pre></div>
 			if (best &amp;&amp; (s64)(se-&gt;min_deadline - best-&gt;deadline) &gt; 0)
 				break;
 		}</pre></div>
-<div class="pg-cell"><pre>		/*
+<div class="pg-cell"><pre>/*
 		 * 如果该实体不符合条件，请尝试左子树。
 		 */
 		if (!all_eligible &amp;&amp; !entity_eligible(cfs_rq, se)) {
@@ -12349,11 +12383,11 @@ should do):</pre></div>
 			node = node-&gt;rb_left;
 			continue;
 		}</pre></div>
-<div class="pg-cell"><pre>		if (节点-&gt;rb_left) {
+<div class="pg-cell"><pre>if (节点-&gt;rb_left) {
 			struct sched_entity *left = __node_2_se(node-&gt;rb_left);</pre></div><div class="pg-cell pg-orig"><pre>		if (node-&gt;rb_left) {
 			struct sched_entity *left = __node_2_se(node-&gt;rb_left);</pre></div>
-<div class="pg-cell"><pre>			BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div><div class="pg-cell pg-orig"><pre>			BUG_ON(left-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div>
-<div class="pg-cell"><pre>			/* vruntime 上的决胜局 */
+<div class="pg-cell"><pre>BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div><div class="pg-cell pg-orig"><pre>			BUG_ON(left-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div>
+<div class="pg-cell"><pre>/* vruntime 上的决胜局 */
 			if (left-&gt;min_deadline == se-&gt;min_deadline) {
 				节点=节点-&gt;rb_left；
 				all_eligible = true；
@@ -12364,7 +12398,7 @@ should do):</pre></div>
 				all_eligible = true;
 				continue;
 			}</pre></div>
-<div class="pg-cell"><pre>			如果（！all_eligible）{
+<div class="pg-cell"><pre>如果（！all_eligible）{
 				/*
 				 * 我们要搜索右子树和那个
 				 * 带min_deadline的可以是不符合条件的，所以记录一下
@@ -12383,10 +12417,10 @@ should do):</pre></div>
 					cand = left;
 			}
 		}</pre></div>
-<div class="pg-cell"><pre>		if (!all_eligible &amp;&amp; (!best || period_gt(deadline, best, se)))
+<div class="pg-cell"><pre>if (!all_eligible &amp;&amp; (!best || period_gt(deadline, best, se)))
 			最好=se；</pre></div><div class="pg-cell pg-orig"><pre>		if (!all_eligible &amp;&amp; (!best || deadline_gt(deadline, best, se)))
 			best = se;</pre></div>
-<div class="pg-cell"><pre>		/* min_deadline就在这个节点，不用往右看*/
+<div class="pg-cell"><pre>/* min_deadline就在这个节点，不用往右看*/
 		if (se-&gt;deadline == se-&gt;min_deadline) {
 			if (all_eligible &amp;&amp; (!best || period_gte(deadline, best, se)))
 				最好=se；
@@ -12403,10 +12437,10 @@ should do):</pre></div>
 			node = NULL;
 			continue;
 		}</pre></div>
-<div class="pg-cell"><pre>		节点=节点-&gt;rb_right；
+<div class="pg-cell"><pre>节点=节点-&gt;rb_right；
 	}</pre></div><div class="pg-cell pg-orig"><pre>		node = node-&gt;rb_right;
 	}</pre></div>
-<div class="pg-cell"><pre>	返回最好的；
+<div class="pg-cell"><pre>返回最好的；
 }</pre></div><div class="pg-cell pg-orig"><pre>	return best;
 }</pre></div>
 <div class="pg-cell"><pre>这在 vruntime 的抢七条件下表现得和
@@ -12447,13 +12481,13 @@ hopefully I attached it in a correct mode to go through lkml.</pre></div>
 &gt; and it&#x27;s better to avoid the potential one extra cache line from
 &gt; &quot;__node_2_se(node-&gt;rb_left)-&gt;min_deadline&quot; though.
 
-我明白了。那么可能在第一个循环中做同样的事情？
+我懂了。那么可能在第一个循环中做同样的事情？
 
 [...11 行引用已省略...]
 &gt; better than &quot;best&quot;&#x27;s, which includes curr). In that case getting an
 &gt; error message is good, and in general I wasn&#x27;t worrying about it much.
 
-对。
+正确的。
 
 [...14 行引用已省略...]
 &gt; That said, we should probably consider curr here in the error-case
@@ -12509,13 +12543,13 @@ Received. Thanks, Ben.</pre></div>
 [...29 行引用已省略...]
 &gt; and it&#x27;s better to avoid the potential one extra cache line from
 &gt; &quot;__node_2_se(node-&gt;rb_left)-&gt;min_deadline&quot; though.</pre></div>
-<div class="pg-cell"><pre>我明白了。那么可能在第一个循环中做同样的事情？</pre></div><div class="pg-cell pg-orig"><pre>I see. Then probably do the same thing in the first loop?</pre></div>
+<div class="pg-cell"><pre>我懂了。那么可能在第一个循环中做同样的事情？</pre></div><div class="pg-cell pg-orig"><pre>I see. Then probably do the same thing in the first loop?</pre></div>
 <div class="pg-cell"><pre>[...11 行引用已省略...]
 &gt; better than &quot;best&quot;&#x27;s, which includes curr). In that case getting an
 &gt; error message is good, and in general I wasn&#x27;t worrying about it much.</pre></div><div class="pg-cell pg-orig"><pre>[...11 行引用已省略...]
 &gt; better than &quot;best&quot;&#x27;s, which includes curr). In that case getting an
 &gt; error message is good, and in general I wasn&#x27;t worrying about it much.</pre></div>
-<div class="pg-cell"><pre>对。</pre></div><div class="pg-cell pg-orig"><pre>Right.</pre></div>
+<div class="pg-cell"><pre>正确的。</pre></div><div class="pg-cell pg-orig"><pre>Right.</pre></div>
 <div class="pg-cell"><pre>[...14 行引用已省略...]
 &gt; That said, we should probably consider curr here in the error-case
 &gt; fallback, if just as a &quot;if (!left) left = cfs_rq-&gt;curr;&quot;</pre></div><div class="pg-cell pg-orig"><pre>[...14 行引用已省略...]
@@ -12675,7 +12709,7 @@ Received. Thanks, Ben.</pre></div>
 &gt;   	}
 &gt; +	return NULL;
 
-为什么不是“最好”？自从..
+为什么不是“最好”？自从 ..
 
 &gt; +}
 &gt;   
@@ -12718,20 +12752,20 @@ __pick_eevdf() 的实现现在相当复杂
 	结构 sched_entity *cand = NULL;
 	布尔 all_eligible = false;
 
-	if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
+if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
 		当前=空；
 
-	/*
+/*
 	 * 一旦选择，运行一个任务，直到它变得不符合条件或
 	 * 直到获得新的切片。请参阅 set_next_entity() 中的 HACK。
 	 */
 	if (sched_feat(RUN_TO_PARITY) &amp;&amp; curr &amp;&amp; curr-&gt;vlag == curr-&gt;截止日期)
 		返回当前值；
 
-	而（节点）{
+而（节点）{
 		struct sched_entity *se = __node_2_se(节点);
 
-		/*
+/*
 		 * 如果该实体不符合条件，请尝试左子树。
 		 */
 		if (!all_eligible &amp;&amp; !entity_eligible(cfs_rq, se)) {
@@ -12739,19 +12773,19 @@ __pick_eevdf() 的实现现在相当复杂
 			继续;
 		}
 
-		if (节点-&gt;rb_left) {
+if (节点-&gt;rb_left) {
 			struct sched_entity *left = __node_2_se(node-&gt;rb_left);
 
-			BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);
+BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);
 
-			/* vruntime 上的决胜局 */
+/* vruntime 上的决胜局 */
 			if (left-&gt;min_deadline == se-&gt;min_deadline) {
 				节点=节点-&gt;rb_left；
 				all_eligible = true；
 				继续;
 			}
 
-			如果（！all_eligible）{
+如果（！all_eligible）{
 				/*
 				 * 我们要搜索右子树和那个
 				 * 带min_deadline的可以是不符合条件的，所以记录一下
@@ -12762,24 +12796,25 @@ __pick_eevdf() 的实现现在相当复杂
 			}
 		}
 
-		/* min_deadline就在这个节点，不用往右看*/
+/* min_deadline就在这个节点，不用往右看*/
 		if (se-&gt;deadline == se-&gt;min_deadline) {
 			最好=se；
 			休息;
 		}
 
-		节点=节点-&gt;rb_right；
+节点=节点-&gt;rb_right；
 
-		if (!node &amp;&amp; cand) {
+if (!node &amp;&amp; cand) {
 			节点=cand；
 			all_eligible = true；
 			坎德=空；
 		}
 	}
+
 if (!best || (curr &amp;&amp; period_gt(deadline, best, curr)))
 		最好=当前；
 
-	返回最好的；
+返回最好的；
 }</pre></div>
     </div>
   </div>
@@ -13273,7 +13308,7 @@ static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq)
 &gt;   		node = node-&gt;rb_right;
 &gt;   	}
 &gt; +	return NULL;</pre></div>
-<div class="pg-cell"><pre>为什么不是“最好”？自从..</pre></div><div class="pg-cell pg-orig"><pre>Why not &#x27;best&#x27;? Since ..</pre></div>
+<div class="pg-cell"><pre>为什么不是“最好”？自从 ..</pre></div><div class="pg-cell pg-orig"><pre>Why not &#x27;best&#x27;? Since ..</pre></div>
 <div class="pg-cell"><pre>&gt; +}
 &gt;   
 &gt; -	if (!best || (curr &amp;&amp; deadline_gt(deadline, best, curr)))
@@ -13341,10 +13376,10 @@ need to test more.</pre></div>
 	struct sched_entity *best = NULL;
 	struct sched_entity *cand = NULL;
 	bool all_eligible = false;</pre></div>
-<div class="pg-cell"><pre>	if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
+<div class="pg-cell"><pre>if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
 		当前=空；</pre></div><div class="pg-cell pg-orig"><pre>	if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
 		curr = NULL;</pre></div>
-<div class="pg-cell"><pre>	/*
+<div class="pg-cell"><pre>/*
 	 * 一旦选择，运行一个任务，直到它变得不符合条件或
 	 * 直到获得新的切片。请参阅 set_next_entity() 中的 HACK。
 	 */
@@ -13355,10 +13390,10 @@ need to test more.</pre></div>
 	 */
 	if (sched_feat(RUN_TO_PARITY) &amp;&amp; curr &amp;&amp; curr-&gt;vlag == curr-&gt;deadline)
 		return curr;</pre></div>
-<div class="pg-cell"><pre>	而（节点）{
+<div class="pg-cell"><pre>而（节点）{
 		struct sched_entity *se = __node_2_se(节点);</pre></div><div class="pg-cell pg-orig"><pre>	while (node) {
 		struct sched_entity *se = __node_2_se(node);</pre></div>
-<div class="pg-cell"><pre>		/*
+<div class="pg-cell"><pre>/*
 		 * 如果该实体不符合条件，请尝试左子树。
 		 */
 		if (!all_eligible &amp;&amp; !entity_eligible(cfs_rq, se)) {
@@ -13371,11 +13406,11 @@ need to test more.</pre></div>
 			node = node-&gt;rb_left;
 			continue;
 		}</pre></div>
-<div class="pg-cell"><pre>		if (节点-&gt;rb_left) {
+<div class="pg-cell"><pre>if (节点-&gt;rb_left) {
 			struct sched_entity *left = __node_2_se(node-&gt;rb_left);</pre></div><div class="pg-cell pg-orig"><pre>		if (node-&gt;rb_left) {
 			struct sched_entity *left = __node_2_se(node-&gt;rb_left);</pre></div>
-<div class="pg-cell"><pre>			BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div><div class="pg-cell pg-orig"><pre>			BUG_ON(left-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div>
-<div class="pg-cell"><pre>			/* vruntime 上的决胜局 */
+<div class="pg-cell"><pre>BUG_ON(左-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div><div class="pg-cell pg-orig"><pre>			BUG_ON(left-&gt;min_deadline &lt; se-&gt;min_deadline);</pre></div>
+<div class="pg-cell"><pre>/* vruntime 上的决胜局 */
 			if (left-&gt;min_deadline == se-&gt;min_deadline) {
 				节点=节点-&gt;rb_left；
 				all_eligible = true；
@@ -13386,7 +13421,7 @@ need to test more.</pre></div>
 				all_eligible = true;
 				continue;
 			}</pre></div>
-<div class="pg-cell"><pre>			如果（！all_eligible）{
+<div class="pg-cell"><pre>如果（！all_eligible）{
 				/*
 				 * 我们要搜索右子树和那个
 				 * 带min_deadline的可以是不符合条件的，所以记录一下
@@ -13405,7 +13440,7 @@ need to test more.</pre></div>
 					cand = left;
 			}
 		}</pre></div>
-<div class="pg-cell"><pre>		/* min_deadline就在这个节点，不用往右看*/
+<div class="pg-cell"><pre>/* min_deadline就在这个节点，不用往右看*/
 		if (se-&gt;deadline == se-&gt;min_deadline) {
 			最好=se；
 			休息;
@@ -13414,24 +13449,23 @@ need to test more.</pre></div>
 			best = se;
 			break;
 		}</pre></div>
-<div class="pg-cell"><pre>		节点=节点-&gt;rb_right；</pre></div><div class="pg-cell pg-orig"><pre>		node = node-&gt;rb_right;</pre></div>
-<div class="pg-cell"><pre>		if (!node &amp;&amp; cand) {
+<div class="pg-cell"><pre>节点=节点-&gt;rb_right；</pre></div><div class="pg-cell pg-orig"><pre>		node = node-&gt;rb_right;</pre></div>
+<div class="pg-cell"><pre>if (!node &amp;&amp; cand) {
 			节点=cand；
 			all_eligible = true；
 			坎德=空；
 		}
-	}
-if (!best || (curr &amp;&amp; period_gt(deadline, best, curr)))
-		最好=当前；</pre></div><div class="pg-cell pg-orig"><pre>		if (!node &amp;&amp; cand) {
+	}</pre></div><div class="pg-cell pg-orig"><pre>		if (!node &amp;&amp; cand) {
 			node = cand;
 			all_eligible = true;
 			cand = NULL;
 		}
 	}</pre></div>
-<div class="pg-cell"><pre>	返回最好的；
-}</pre></div><div class="pg-cell pg-orig"><pre>	if (!best || (curr &amp;&amp; deadline_gt(deadline, best, curr)))
+<div class="pg-cell"><pre>if (!best || (curr &amp;&amp; period_gt(deadline, best, curr)))
+		最好=当前；</pre></div><div class="pg-cell pg-orig"><pre>	if (!best || (curr &amp;&amp; deadline_gt(deadline, best, curr)))
 		best = curr;</pre></div>
-<div class="pg-cell"><pre></pre></div><div class="pg-cell pg-orig"><pre>	return best;
+<div class="pg-cell"><pre>返回最好的；
+}</pre></div><div class="pg-cell pg-orig"><pre>	return best;
 }</pre></div>
 </div>
 </details>
@@ -13534,73 +13568,73 @@ patches, I rewrote pretty much everything else, except this lookup :/).</pre></d
 是的，确实如此。我只是想知道是否有必要进行两步搜索，因为
 它们遵循相同的堆搜索规则：
 
-   1) 节点-&gt;min_deadline &gt; 节点-&gt;左-&gt;min_deadline
+1) 节点-&gt;min_deadline &gt; 节点-&gt;左-&gt;min_deadline
 	1.1）错误
 
-   2) 节点-&gt;min_deadline = 节点-&gt;左-&gt;min_deadline
+2) 节点-&gt;min_deadline = 节点-&gt;左-&gt;min_deadline
 	2.1) 如果在 vruntime 上决胜则向左走
 
-   3) 节点-&gt;min_deadline &lt; 节点-&gt;左-&gt;min_deadline
+3) 节点-&gt;min_deadline &lt; 节点-&gt;左-&gt;min_deadline
 	3.1) 如果有最小截止时间则返回@node，或者
 	3.2）向右走
 
 这给出：
 
-	而（节点）{
+而（节点）{
 		if ((左=节点-&gt;左)) {
 			/* 1.1 */
 			BUG_ON(左-&gt;min &lt; 节点-&gt;min);
 
-			/* 2.1 */
+/* 2.1 */
 			if (左-&gt;min == 节点-&gt;min) {
 				节点=左；
 				继续;
 			}
 		}
 
-		/* 3.1 */
+/* 3.1 */
 		if (节点-&gt;截止日期==节点-&gt;分钟)
 			返回节点；
 
-		/* 3.2 */
+/* 3.2 */
 		节点=节点-&gt;右；
 	}
 
 上面返回了具有最早截止日期（并且具有最小截止日期）的实体
 vruntime（如果有相同的截止日期）。然后是资格：
 
-   0) 它有助于修剪树，因为 a 的右子树
+0) 它有助于修剪树，因为 a 的右子树
       非合格节点不能包含任何合格节点。
 
-   3.2.1) 记录 left 作为后备 iff 的资格检查
+3.2.1) 记录 left 作为后备 iff 的资格检查
           是活跃的，保存最好的就足够了，因为
           其中都不包含不合格节点，IOW 是其中一个
           左侧树中的最小截止日期必须符合资格。
 
-   4）一旦离开，资格检查立即结束
+4）一旦离开，资格检查立即结束
       一个合格的节点，包括切换到后备节点
       本质上是合格节点的“左侧”。
 
-   5) 如果找不到候选者（如果存在），则回退到候选者（如果存在）
+5) 如果找不到候选者（如果存在），则回退到候选者（如果存在）
       最早截止日期的合格实体。
 
 这使得：
 
-	候选人=空；
+候选人=空；
 	需要检查=真；
 
-	而（节点）{
+而（节点）{
 		/* 0 */
 		if (need_check &amp;&amp; !eligible(node)) {
 			节点=节点-&gt;左；
 			转到下一个；
 		}
 
-		if ((左=节点-&gt;左)) {
+if ((左=节点-&gt;左)) {
 			/* 1.1 */
 			BUG_ON(左-&gt;min &lt; 节点-&gt;min);
 
-			/* 2.1 */
+/* 2.1 */
 			if (左-&gt;min == 节点-&gt;min) {
 				节点=左；
 				/* 4 */
@@ -13608,16 +13642,16 @@ vruntime（如果有相同的截止日期）。然后是资格：
 				继续;
 			}
 
-			/* 3.2.1 */
+/* 3.2.1 */
 			如果（需要检查）
 				候选人=更好（候选人，左）；
 		}
 
-		/* 3.1 */
+/* 3.1 */
 		if (节点-&gt;截止日期==节点-&gt;分钟)
 			返回节点；
 
-		/* 3.2 */
+/* 3.2 */
 		节点=节点-&gt;右；
 	下一个：
 		/* 5 */
@@ -13766,26 +13800,26 @@ Best,
 <div class="pg-cell"><pre>是的，确实如此。我只是想知道是否有必要进行两步搜索，因为
 它们遵循相同的堆搜索规则：</pre></div><div class="pg-cell pg-orig"><pre>Yes, it does. I just wonder if the 2-step search is necessary, since
 they obey the same rule of heap search:</pre></div>
-<div class="pg-cell"><pre>   1) 节点-&gt;min_deadline &gt; 节点-&gt;左-&gt;min_deadline
+<div class="pg-cell"><pre>1) 节点-&gt;min_deadline &gt; 节点-&gt;左-&gt;min_deadline
 	1.1）错误</pre></div><div class="pg-cell pg-orig"><pre>   1) node-&gt;min_deadline &gt; node-&gt;left-&gt;min_deadline
 	1.1) BUG</pre></div>
-<div class="pg-cell"><pre>   2) 节点-&gt;min_deadline = 节点-&gt;左-&gt;min_deadline
+<div class="pg-cell"><pre>2) 节点-&gt;min_deadline = 节点-&gt;左-&gt;min_deadline
 	2.1) 如果在 vruntime 上决胜则向左走</pre></div><div class="pg-cell pg-orig"><pre>   2) node-&gt;min_deadline = node-&gt;left-&gt;min_deadline
 	2.1) go left if tiebreak on vruntime</pre></div>
-<div class="pg-cell"><pre>   3) 节点-&gt;min_deadline &lt; 节点-&gt;左-&gt;min_deadline
+<div class="pg-cell"><pre>3) 节点-&gt;min_deadline &lt; 节点-&gt;左-&gt;min_deadline
 	3.1) 如果有最小截止时间则返回@node，或者
 	3.2）向右走</pre></div><div class="pg-cell pg-orig"><pre>   3) node-&gt;min_deadline &lt; node-&gt;left-&gt;min_deadline
 	3.1) return @node if it has min deadline, or
 	3.2) go right</pre></div>
 <div class="pg-cell"><pre>这给出：</pre></div><div class="pg-cell pg-orig"><pre>which gives:</pre></div>
-<div class="pg-cell"><pre>	而（节点）{
+<div class="pg-cell"><pre>而（节点）{
 		if ((左=节点-&gt;左)) {
 			/* 1.1 */
 			BUG_ON(左-&gt;min &lt; 节点-&gt;min);</pre></div><div class="pg-cell pg-orig"><pre>	while (node) {
 		if ((left = node-&gt;left)) {
 			/* 1.1 */
 			BUG_ON(left-&gt;min &lt; node-&gt;min);</pre></div>
-<div class="pg-cell"><pre>			/* 2.1 */
+<div class="pg-cell"><pre>/* 2.1 */
 			if (左-&gt;min == 节点-&gt;min) {
 				节点=左；
 				继续;
@@ -13796,12 +13830,12 @@ they obey the same rule of heap search:</pre></div>
 				continue;
 			}
 		}</pre></div>
-<div class="pg-cell"><pre>		/* 3.1 */
+<div class="pg-cell"><pre>/* 3.1 */
 		if (节点-&gt;截止日期==节点-&gt;分钟)
 			返回节点；</pre></div><div class="pg-cell pg-orig"><pre>		/* 3.1 */
 		if (node-&gt;deadline == node-&gt;min)
 			return node;</pre></div>
-<div class="pg-cell"><pre>		/* 3.2 */
+<div class="pg-cell"><pre>/* 3.2 */
 		节点=节点-&gt;右；
 	}</pre></div><div class="pg-cell pg-orig"><pre>		/* 3.2 */
 		node = node-&gt;right;
@@ -13809,29 +13843,29 @@ they obey the same rule of heap search:</pre></div>
 <div class="pg-cell"><pre>上面返回了具有最早截止日期（并且具有最小截止日期）的实体
 vruntime（如果有相同的截止日期）。然后是资格：</pre></div><div class="pg-cell pg-orig"><pre>The above returns the entity with ealiest deadline (and with smallest
 vruntime if have same deadline). Then comes with eligibility:</pre></div>
-<div class="pg-cell"><pre>   0) 它有助于修剪树，因为 a 的右子树
+<div class="pg-cell"><pre>0) 它有助于修剪树，因为 a 的右子树
       非合格节点不能包含任何合格节点。</pre></div><div class="pg-cell pg-orig"><pre>   0) it helps pruning the tree since the right subtree of a
       non-eligible node can&#x27;t contain any eligible node.</pre></div>
-<div class="pg-cell"><pre>   3.2.1) 记录 left 作为后备 iff 的资格检查
+<div class="pg-cell"><pre>3.2.1) 记录 left 作为后备 iff 的资格检查
           是活跃的，保存最好的就足够了，因为
           其中都不包含不合格节点，IOW 是其中一个
           左侧树中的最小截止日期必须符合资格。</pre></div><div class="pg-cell pg-orig"><pre>   3.2.1) record left as a fallback iff the eligibility check
           is active, and saving the best one is enough since
           none of them contain non-eligible node, IOW the one
           with min deadline in the left tree must be eligible.</pre></div>
-<div class="pg-cell"><pre>   4）一旦离开，资格检查立即结束
+<div class="pg-cell"><pre>4）一旦离开，资格检查立即结束
       一个合格的节点，包括切换到后备节点
       本质上是合格节点的“左侧”。</pre></div><div class="pg-cell pg-orig"><pre>   4) the eligibility check ends immediately once go left from
       an eligible node, including switch to the fallback which
       is essentially is the &#x27;left&#x27; of an eligible node.</pre></div>
-<div class="pg-cell"><pre>   5) 如果找不到候选者（如果存在），则回退到候选者（如果存在）
+<div class="pg-cell"><pre>5) 如果找不到候选者（如果存在），则回退到候选者（如果存在）
       最早截止日期的合格实体。</pre></div><div class="pg-cell pg-orig"><pre>   5) fallback to the candidate (if exists) if failed to find
       an eligible entity with earliest deadline.</pre></div>
 <div class="pg-cell"><pre>这使得：</pre></div><div class="pg-cell pg-orig"><pre>which makes:</pre></div>
-<div class="pg-cell"><pre>	候选人=空；
+<div class="pg-cell"><pre>候选人=空；
 	需要检查=真；</pre></div><div class="pg-cell pg-orig"><pre>	candidate = NULL;
 	need_check = true;</pre></div>
-<div class="pg-cell"><pre>	而（节点）{
+<div class="pg-cell"><pre>而（节点）{
 		/* 0 */
 		if (need_check &amp;&amp; !eligible(node)) {
 			节点=节点-&gt;左；
@@ -13842,12 +13876,12 @@ vruntime if have same deadline). Then comes with eligibility:</pre></div>
 			node = node-&gt;left;
 			goto next;
 		}</pre></div>
-<div class="pg-cell"><pre>		if ((左=节点-&gt;左)) {
+<div class="pg-cell"><pre>if ((左=节点-&gt;左)) {
 			/* 1.1 */
 			BUG_ON(左-&gt;min &lt; 节点-&gt;min);</pre></div><div class="pg-cell pg-orig"><pre>		if ((left = node-&gt;left)) {
 			/* 1.1 */
 			BUG_ON(left-&gt;min &lt; node-&gt;min);</pre></div>
-<div class="pg-cell"><pre>			/* 2.1 */
+<div class="pg-cell"><pre>/* 2.1 */
 			if (左-&gt;min == 节点-&gt;min) {
 				节点=左；
 				/* 4 */
@@ -13860,19 +13894,19 @@ vruntime if have same deadline). Then comes with eligibility:</pre></div>
 				need_check = false;
 				continue;
 			}</pre></div>
-<div class="pg-cell"><pre>			/* 3.2.1 */
+<div class="pg-cell"><pre>/* 3.2.1 */
 			如果（需要检查）
 				候选人=更好（候选人，左）；
 		}</pre></div><div class="pg-cell pg-orig"><pre>			/* 3.2.1 */
 			if (need_check)
 				candidate = better(candidate, left);
 		}</pre></div>
-<div class="pg-cell"><pre>		/* 3.1 */
+<div class="pg-cell"><pre>/* 3.1 */
 		if (节点-&gt;截止日期==节点-&gt;分钟)
 			返回节点；</pre></div><div class="pg-cell pg-orig"><pre>		/* 3.1 */
 		if (node-&gt;deadline == node-&gt;min)
 			return node;</pre></div>
-<div class="pg-cell"><pre>		/* 3.2 */
+<div class="pg-cell"><pre>/* 3.2 */
 		节点=节点-&gt;右；
 	下一个：
 		/* 5 */
@@ -13915,7 +13949,7 @@ the paper if you think that is already clear enough :)</pre></div>
   <div class="bi-panel">
     <div class="bi-hdr"><span class="bi-label">中文翻译</span><button class="bi-toggle" onclick="biToggle(this)">«</button></div>
     <div class="bi-body">
-      <div class="email-body"><pre>嗨，
+      <div class="email-body"><pre>你好，
 
 2023 年 9 月 30 日 02:09，本杰明·西格尔写道：
 [...13 行引用已省略...]
@@ -14038,7 +14072,7 @@ ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}，位于：__schedule+0xe0/0xc
         __lock_acquire+0x1318/0x20c4
         锁_获取+0x1e8/0x318
         console_flush_all+0x1f8/0x500
-       console_unlock+0x6c/0x130
+        console_unlock+0x6c/0x130
         vprintk_emit+0x228/0x3a0
         vprintk_default+0x38/0x44
         vprintk+0xa4/0xc0
@@ -14061,16 +14095,16 @@ ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}，位于：__schedule+0xe0/0xc
 链条存在于：
    console_owner --&gt; &amp;p-&gt;pi_lock --&gt; &amp;rq-&gt;__lock
 
-  可能的不安全锁定场景：
+ 可能的不安全锁定场景：
 
-        CPU0                    CPU1
+       CPU0                    CPU1
         ----                    ----
    锁(&amp;rq-&gt;__lock);
                                 锁(&amp;p-&gt;pi_lock);
                                 锁(&amp;rq-&gt;__lock);
    锁（控制台所有者）；
 
-  *** 僵局 ***
+ *** 僵局 ***
 
 systemd-udevd/1187 持有 3 个锁：
   #0: ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}，位于：__schedule+0xe0/0xc40
@@ -14120,7 +14154,7 @@ linux-next 将问题隐藏得足够深，我无法
 &gt;
 &gt; ...
 
-最好的问候</pre></div>
+此致</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -14337,7 +14371,7 @@ Best regards</pre></div>
 </div>
 <details class="original"><summary>段落对齐视图</summary>
 <div class="para-grid">
-<div class="pg-cell"><pre>嗨，</pre></div><div class="pg-cell pg-orig"><pre>Hi,</pre></div>
+<div class="pg-cell"><pre>你好，</pre></div><div class="pg-cell pg-orig"><pre>Hi,</pre></div>
 <div class="pg-cell"><pre>2023 年 9 月 30 日 02:09，本杰明·西格尔写道：
 [...13 行引用已省略...]
 &gt; Fixes: 147f3efaa241 (&quot;sched/fair: Implement an EEVDF-like scheduling policy&quot;)
@@ -14544,7 +14578,7 @@ ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}, at: __schedule+0xe0/0xc40</pr
         __lock_acquire+0x1318/0x20c4
         锁_获取+0x1e8/0x318
         console_flush_all+0x1f8/0x500
-       console_unlock+0x6c/0x130
+        console_unlock+0x6c/0x130
         vprintk_emit+0x228/0x3a0
         vprintk_default+0x38/0x44
         vprintk+0xa4/0xc0
@@ -14585,8 +14619,8 @@ ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}, at: __schedule+0xe0/0xc40</pr
 <div class="pg-cell"><pre>链条存在于：
    console_owner --&gt; &amp;p-&gt;pi_lock --&gt; &amp;rq-&gt;__lock</pre></div><div class="pg-cell pg-orig"><pre>Chain exists of:
    console_owner --&gt; &amp;p-&gt;pi_lock --&gt; &amp;rq-&gt;__lock</pre></div>
-<div class="pg-cell"><pre>  可能的不安全锁定场景：</pre></div><div class="pg-cell pg-orig"><pre>  Possible unsafe locking scenario:</pre></div>
-<div class="pg-cell"><pre>        CPU0                    CPU1
+<div class="pg-cell"><pre> 可能的不安全锁定场景：</pre></div><div class="pg-cell pg-orig"><pre>  Possible unsafe locking scenario:</pre></div>
+<div class="pg-cell"><pre>       CPU0                    CPU1
         ----                    ----
    锁(&amp;rq-&gt;__lock);
                                 锁(&amp;p-&gt;pi_lock);
@@ -14597,7 +14631,7 @@ ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}, at: __schedule+0xe0/0xc40</pr
                                 lock(&amp;p-&gt;pi_lock);
                                 lock(&amp;rq-&gt;__lock);
    lock(console_owner);</pre></div>
-<div class="pg-cell"><pre>  *** 僵局 ***</pre></div><div class="pg-cell pg-orig"><pre>  *** DEADLOCK ***</pre></div>
+<div class="pg-cell"><pre> *** 僵局 ***</pre></div><div class="pg-cell pg-orig"><pre>  *** DEADLOCK ***</pre></div>
 <div class="pg-cell"><pre>systemd-udevd/1187 持有 3 个锁：
   #0: ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}，位于：__schedule+0xe0/0xc40
   #1: ffffbcc2be0c4c30 (console_lock){+.+.}-{0:0}，位于： 
@@ -14682,7 +14716,7 @@ this issue.</pre></div>
 &gt; ...</pre></div><div class="pg-cell pg-orig"><pre>[...3 行引用已省略...]
 &gt;
 &gt; ...</pre></div>
-<div class="pg-cell"><pre>最好的问候</pre></div><div class="pg-cell pg-orig"><pre>Best regards</pre></div>
+<div class="pg-cell"><pre>此致</pre></div><div class="pg-cell pg-orig"><pre>Best regards</pre></div>
 </div>
 </details>
 </div>
@@ -14712,8 +14746,9 @@ PLACE_DEADLINE_INITIAL 当它被分叉时，但截止日期得到
 task_fork_fair()) 并通过 ENQUEUE_INITIAL 传递给 enqueue_entity()
 wake_up_new_task()。
 
-修复：e8f331bcc270（“sched/smp：使用滞后来简化跨运行队列放置”）
-Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div>
+Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -14753,8 +14788,9 @@ that get set (slice, vruntime, deadline) are used before they&#x27;re set
 again at enqueue time, so get rid of that (and with it all of
 task_fork_fair()) and just pass ENQUEUE_INITIAL to enqueue_entity() via
 wake_up_new_task().</pre></div>
-<div class="pg-cell"><pre>修复：e8f331bcc270（“sched/smp：使用滞后来简化跨运行队列放置”）
-Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div><div class="pg-cell pg-orig"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+<div class="pg-cell"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
 Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div>
 </div>
 </details>
@@ -14762,34 +14798,34 @@ Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div>
     <pre class="diff">---
 
 v2
- - place_entity() seems like the only reason for task_fork_fair() to exist
-   after the recent removal of sysctl_sched_child_runs_first, so take out
-   the whole function.
+ - place_entity() 似乎是 task_fork_fair() 存在的唯一原因
+   最近删除 sysctl_sched_child_runs_first 后，因此取出
+   整个功能。
 
-Still based on today&#x27;s peterz/sched/eevdf
+仍然基于今天的 peterz/sched/eevdf
 
- kernel/sched/core.c |  2 +-
- kernel/sched/fair.c | 24 ------------------------
- 2 files changed, 1 insertion(+), 25 deletions(-)
+内核/sched/core.c |  2+-
+ 内核/sched/fair.c | 24 ----------------------
+ 2 个文件更改、1 个插入(+)、25 个删除(-)
 
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 779cdc7969c81..500e2dbfd41dd 100644
+索引 779cdc7969c81..500e2dbfd41dd 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -4854,7 +4854,7 @@ void wake_up_new_task(struct task_struct *p)
+@@ -4854,7 +4854,7 @@ voidwake_up_new_task(struct task_struct *p)
  	update_rq_clock(rq);
  	post_init_entity_util_avg(p);
  
 -	activate_task(rq, p, ENQUEUE_NOCLOCK);
 +	activate_task(rq, p, ENQUEUE_INITIAL | ENQUEUE_NOCLOCK);
- 	trace_sched_wakeup_new(p);
+ 	Trace_sched_wakeup_new(p);
  	wakeup_preempt(rq, p, WF_FORK);
  #ifdef CONFIG_SMP
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index a0b4dac2662c9..3827b302eeb9b 100644
+索引 a0b4dac2662c9..3827b302eeb9b 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -12427,29 +12427,6 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
+@@ -12427,29 +12427,6 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int 已排队)
  	task_tick_core(rq, curr);
  }
  
@@ -14817,16 +14853,16 @@ index a0b4dac2662c9..3827b302eeb9b 100644
 -}
 -
  /*
-  * Priority of the task has changed. Check to see if we preempt
-  * the current task.
-@@ -12953,7 +12930,6 @@ DEFINE_SCHED_CLASS(fair) = {
+  * 任务的优先级已更改。检查我们是否抢占
+  * 当前任务。
+@@ -12953,7 +12930,6 @@ DEFINE_SCHED_CLASS(公平) = {
  #endif
  
- 	.task_tick		= task_tick_fair,
+ 	.task_tick = task_tick_fair,
 -	.task_fork		= task_fork_fair,
  
- 	.prio_changed		= prio_changed_fair,
- 	.switched_from		= switched_from_fair,
+ 	.prio_changed = prio_changed_fair,
+ 	.switched_from = Switched_from_fair，
 -- 
 2.41.0</pre>
   </details>
@@ -14861,7 +14897,7 @@ o 内核详细信息
 	[自从我遇到这个问题以来，仅用于 DeathStarBench 比较
 	下面提交解决了]
 	+ min_deadline 修复提交 8dafa9d0eb1a（“sched/eevdf：修复
-	min_deadline 堆完整性”）来自提示：sched/urgent 
+	min_deadline 堆完整性”）来自提示：sched/urgent
 
 - place-initial-fix: tip + this patch as is
 
@@ -15368,7 +15404,7 @@ I&#x27;ll leave the full results below.</pre></div>
 	[自从我遇到这个问题以来，仅用于 DeathStarBench 比较
 	下面提交解决了]
 	+ min_deadline 修复提交 8dafa9d0eb1a（“sched/eevdf：修复
-	min_deadline 堆完整性”）来自提示：sched/urgent </pre></div><div class="pg-cell pg-orig"><pre>- tip:	tip:sched/core at commit 238437d88cea (&quot;intel_idle: Add ibrs_off
+	min_deadline 堆完整性”）来自提示：sched/urgent</pre></div><div class="pg-cell pg-orig"><pre>- tip:	tip:sched/core at commit 238437d88cea (&quot;intel_idle: Add ibrs_off
 	module parameter to force-disable IBRS&quot;)
 	[For DeathStarBench comparisons alone since I ran to the issue
 	which below commit solves]
@@ -16004,8 +16040,9 @@ placing should always happen after update_curr().</pre></div>
 似乎没有理由特别对待“curr”案例
 在 e8f331bcc270 之后，因为 vruntime 不再标准化。
 
-修复：e8f331bcc270（“sched/smp：使用滞后来简化跨运行队列放置”）
-Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div>
+Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -16036,28 +16073,29 @@ do update_curr() and update_cfs_group() beforehand.</pre></div>
 <div class="pg-cell"><pre>似乎没有理由特别对待“curr”案例
 在 e8f331bcc270 之后，因为 vruntime 不再标准化。</pre></div><div class="pg-cell pg-orig"><pre>There doesn&#x27;t seem to be a reason to treat the &#x27;curr&#x27; case specially
 after e8f331bcc270 since vruntime doesn&#x27;t get normalized anymore.</pre></div>
-<div class="pg-cell"><pre>修复：e8f331bcc270（“sched/smp：使用滞后来简化跨运行队列放置”）
-Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div><div class="pg-cell pg-orig"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+<div class="pg-cell"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
 Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
     <pre class="diff">---
 
-Not sure what the XXX above place_entity() is for, maybe it can go away?
+不确定 place_entity() 上面的 XXX 是做什么用的，也许它可以消失？
 
-Based on tip/sched/core.
+基于提示/计划/核心。
 
- kernel/sched/fair.c | 14 ++------------
- 1 file changed, 2 insertions(+), 12 deletions(-)
+内核/sched/fair.c | 14++------------
+ 1 个文件已更改、2 个插入(+)、12 个删除(-)
 
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index 04fbcbda97d5f..db2ca9bf9cc49 100644
+索引 04fbcbda97d5f..db2ca9bf9cc49 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
-@@ -5047,15 +5047,6 @@ static inline bool cfs_bandwidth_used(void);
- static void
- enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+@@ -5047,15 +5047,6 @@ 静态内联 bool cfs_bandwidth_used(void);
+ 静态无效
+ enqueue_entity（结构 cfs_rq *cfs_rq，结构 sched_entity *se，int 标志）
  {
 -	bool curr = cfs_rq-&gt;curr == se;
 -
@@ -16071,9 +16109,9 @@ index 04fbcbda97d5f..db2ca9bf9cc49 100644
  	update_curr(cfs_rq);
  
  	/*
-@@ -5080,8 +5071,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
- 	 * XXX now that the entity has been re-weighted, and it&#x27;s lag adjusted,
- 	 * we can place the entity.
+@@ -5080,8 +5071,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int 标志)
+ 	 * XXX 现在实体已重新加权，并且已调整滞后，
+ 	 * 我们可以放置实体。
  	 */
 -	if (!curr)
 -		place_entity(cfs_rq, se, flags);
@@ -16081,10 +16119,10 @@ index 04fbcbda97d5f..db2ca9bf9cc49 100644
  
  	account_entity_enqueue(cfs_rq, se);
  
-@@ -5091,7 +5081,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+@@ -5091,7 +5081,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int 标志)
  
  	check_schedstat_required();
- 	update_stats_enqueue_fair(cfs_rq, se, flags);
+ 	update_stats_enqueue_fair(cfs_rq, se, 标志);
 -	if (!curr)
 +	if (cfs_rq-&gt;curr != se)
  		__enqueue_entity(cfs_rq, se);
@@ -16146,7 +16184,7 @@ index 04fbcbda97d5f..db2ca9bf9cc49 100644
 
 IIRC 发出此命令的部分原因是：
 
-  出队
+出队
   更新
   排队
 
@@ -16289,7 +16327,7 @@ Could be that all magically works, but please double check.</pre></div>
 &gt; -
 &gt;  	update_curr(cfs_rq);</pre></div>
 <div class="pg-cell"><pre>IIRC 发出此命令的部分原因是：</pre></div><div class="pg-cell pg-orig"><pre>IIRC part of the reason for this order is the:</pre></div>
-<div class="pg-cell"><pre>  出队
+<div class="pg-cell"><pre>出队
   更新
   排队</pre></div><div class="pg-cell pg-orig"><pre>  dequeue
   update
@@ -17422,8 +17460,9 @@ PLACE_DEADLINE_INITIAL 当它被分叉时，但截止日期得到
 再次在入队时，所以摆脱它并只传递 ENQUEUE_INITIAL
 通过wake_up_new_task() 到enqueue_entity()。
 
-修复：e8f331bcc270（“sched/smp：使用滞后来简化跨运行队列放置”）
-Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div>
+Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;
+`</pre></div>
     </div>
   </div>
   <div class="bi-panel">
@@ -17460,40 +17499,41 @@ entity is woken so that PLACE_DEADLINE_INITIAL is effectively a no-op.</pre></di
 that get set (slice, vruntime, deadline) are used before they&#x27;re set
 again at enqueue time, so get rid of that and just pass ENQUEUE_INITIAL
 to enqueue_entity() via wake_up_new_task().</pre></div>
-<div class="pg-cell"><pre>修复：e8f331bcc270（“sched/smp：使用滞后来简化跨运行队列放置”）
-Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div><div class="pg-cell pg-orig"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+<div class="pg-cell"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
+Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;
+`</pre></div><div class="pg-cell pg-orig"><pre>Fixes: e8f331bcc270 (&quot;sched/smp: Use lag to simplify cross-runqueue placement&quot;)
 Signed-off-by: Daniel Jordan &lt;daniel.m.jordan@oracle.com&gt;</pre></div>
 </div>
 </details>
   <details class="diff-block"><summary>代码变更 (diff)</summary>
     <pre class="diff">---
 
-Tested on top of peterz/sched/eevdf from 2023-10-03.
+自 2023 年 10 月 3 日起在 peterz/sched/eevdf 之上进行测试。
 
- kernel/sched/core.c | 2 +-
- kernel/sched/fair.c | 1 -
- 2 files changed, 1 insertion(+), 2 deletions(-)
+内核/sched/core.c | 2+-
+ 内核/sched/fair.c | 1 -
+ 更改了 2 个文件，1 个插入(+)，2 个删除(-)
 
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 779cdc7969c81..500e2dbfd41dd 100644
+索引 779cdc7969c81..500e2dbfd41dd 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -4854,7 +4854,7 @@ void wake_up_new_task(struct task_struct *p)
+@@ -4854,7 +4854,7 @@ voidwake_up_new_task(struct task_struct *p)
  	update_rq_clock(rq);
  	post_init_entity_util_avg(p);
  
 -	activate_task(rq, p, ENQUEUE_NOCLOCK);
 +	activate_task(rq, p, ENQUEUE_INITIAL | ENQUEUE_NOCLOCK);
- 	trace_sched_wakeup_new(p);
+ 	Trace_sched_wakeup_new(p);
  	wakeup_preempt(rq, p, WF_FORK);
  #ifdef CONFIG_SMP
 diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
-index a0b4dac2662c9..5872b8a3f5891 100644
+索引 a0b4dac2662c9..5872b8a3f5891 100644
 --- a/kernel/sched/fair.c
 +++ b/kernel/sched/fair.c
 @@ -12446,7 +12446,6 @@ static void task_fork_fair(struct task_struct *p)
  	curr = cfs_rq-&gt;curr;
- 	if (curr)
+ 	如果（当前）
  		update_curr(cfs_rq);
 -	place_entity(cfs_rq, se, ENQUEUE_INITIAL);
  	rq_unlock(rq, &amp;rf);
