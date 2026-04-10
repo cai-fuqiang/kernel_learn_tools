@@ -822,40 +822,50 @@ def _is_untranslatable(para: str) -> bool:
 def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
 
+    策略：
+      - 不可翻译段落（数据/代码/引用/签名）横跨两栏显示（pg-full）
+      - 可翻译段落按顺序左右对齐
+
     Args:
         text_cn:   翻译后的中文正文
         text_orig: 英文原文正文
 
     Returns:
-        HTML 字符串：一个 .bilingual 容器，内含段落对齐网格
+        HTML 字符串：段落对齐网格
     """
     paras_cn = _split_paragraphs(text_cn)
     paras_en = _split_paragraphs(text_orig)
 
-    # 对齐：取最长的那方，短方补空
-    max_len = max(len(paras_cn), len(paras_en), 1)
-    while len(paras_cn) < max_len:
-        paras_cn.append("")
-    while len(paras_en) < max_len:
-        paras_en.append("")
-
-    # 生成网格行
+    # 将段落分为可翻译和不可翻译两类，并记录原始顺序
+    # 以英文原文为基准遍历，逐段决定渲染方式
     rows = []
-    for cn, en in zip(paras_cn, paras_en):
-        # 如果英文段落是不可翻译内容（引用/签名），横跨两栏
-        if not cn and _is_untranslatable(en):
+    cn_idx = 0  # 可翻译段落的中文游标
+
+    # 收集中文侧的可翻译段落（排除不可翻译的）
+    cn_translatable = [p for p in paras_cn if not _is_untranslatable(p)]
+
+    for en in paras_en:
+        if _is_untranslatable(en):
+            # 数据/代码/引用/签名段落 → 横跨两栏
             rows.append(
                 f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
             )
-        elif not en and _is_untranslatable(cn):
-            rows.append(
-                f'<div class="pg-full"><pre>{_esc(cn)}</pre></div>'
-            )
         else:
+            # 可翻译段落 → 左右对齐
+            cn = cn_translatable[cn_idx] if cn_idx < len(cn_translatable) else ""
+            cn_idx += 1
             rows.append(
                 f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
                 f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
             )
+
+    # 如果中文侧还有剩余可翻译段落（翻译产生了多余段落）
+    while cn_idx < len(cn_translatable):
+        rows.append(
+            f'<div class="pg-cell"><pre>{_esc(cn_translatable[cn_idx])}</pre></div>'
+            f'<div class="pg-cell pg-orig"><pre></pre></div>'
+        )
+        cn_idx += 1
 
     grid = '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
 
@@ -866,22 +876,25 @@ def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
     """渲染 commit message 的段落对齐对比"""
     paras_cn = _split_paragraphs(cm_cn)
     paras_en = _split_paragraphs(cm_orig)
-    max_len = max(len(paras_cn), len(paras_en), 1)
-    while len(paras_cn) < max_len:
-        paras_cn.append("")
-    while len(paras_en) < max_len:
-        paras_en.append("")
     rows = []
-    for cn, en in zip(paras_cn, paras_en):
-        if not cn and _is_untranslatable(en):
+    cn_translatable = [p for p in paras_cn if not _is_untranslatable(p)]
+    cn_idx = 0
+    for en in paras_en:
+        if _is_untranslatable(en):
             rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
-        elif not en and _is_untranslatable(cn):
-            rows.append(f'<div class="pg-full"><pre>{_esc(cn)}</pre></div>')
         else:
+            cn = cn_translatable[cn_idx] if cn_idx < len(cn_translatable) else ""
+            cn_idx += 1
             rows.append(
                 f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
                 f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
             )
+    while cn_idx < len(cn_translatable):
+        rows.append(
+            f'<div class="pg-cell"><pre>{_esc(cn_translatable[cn_idx])}</pre></div>'
+            f'<div class="pg-cell pg-orig"><pre></pre></div>'
+        )
+        cn_idx += 1
     return '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
 
 
