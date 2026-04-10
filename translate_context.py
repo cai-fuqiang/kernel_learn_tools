@@ -1082,14 +1082,45 @@ def _fuzzy_match_untranslatable(cn_para: str, en_para: str) -> bool:
     return False
 
 
+def _is_cn_translation_of(cn_para: str, en_para: str) -> bool:
+    """判断 cn_para 是否看起来是 en_para 的中文翻译。
+
+    用于渲染阶段验证左右对齐的正确性。
+    如果中文段落与英文段落内容过度重叠（未被翻译），返回 False。
+    """
+    cs = cn_para.strip()
+    es = en_para.strip()
+    if not cs or not es:
+        return False
+    # 完全相同 → 未翻译
+    if cs == es:
+        return False
+    # 压缩空白后相同 → 未翻译
+    cs_c = re.sub(r'\s+', ' ', cs)
+    es_c = re.sub(r'\s+', ' ', es)
+    if cs_c == es_c:
+        return False
+    # 行集合高度重叠 (>= 80%) → 未翻译
+    cn_lines = set(l.strip() for l in cs.splitlines() if l.strip())
+    en_lines = set(l.strip() for l in es.splitlines() if l.strip())
+    if en_lines and cn_lines:
+        overlap = len(cn_lines & en_lines)
+        if overlap >= len(en_lines) * 0.8:
+            return False
+    # 中文段落应含有中文字符（或至少与英文不同）
+    return True
+
+
 def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
 
-    策略：以英文原文段落为骨架逐段处理：
-      1. 不可翻译段落（含上下文感知） → 横跨两栏 (pg-full)
-      2. 可翻译段落 → 左右对齐 (pg-cell)，中文侧从翻译文本中按顺序取
+    核心原则：左侧(中文)一定是右侧(英文)内容的翻译。
 
-    使用上下文感知判断 + 模糊匹配来同步锚点，避免对齐错位。
+    策略：以英文原文段落为骨架，仅以 EN 侧的 untrans 判断为准：
+      1. EN untrans=True → 横跨两栏 (pg-full)，同时同步跳过 CN 中对应段落
+      2. EN untrans=False → 左右对齐 (pg-cell)，从 CN 中取翻译段落
+         - 跳过 CN 中与任何 EN untrans 段落模糊匹配的段落（它们是锚点）
+         - 验证取到的 CN 段落确实是翻译（非原文复制），否则改为跨两栏
     """
     paras_cn = _split_paragraphs(text_cn)
     paras_en = _split_paragraphs(text_orig)
@@ -1101,6 +1132,16 @@ def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
         next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
         en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
 
+    # 收集所有 EN untrans 段落，用于后续快速判断 CN 段落是否是锚点
+    en_untrans_paras = [paras_en[i] for i in range(len(paras_en)) if en_untrans[i]]
+
+    def _cn_is_anchor(cn_p: str) -> bool:
+        """判断 CN 段落是否与某个 EN untrans 段落匹配（即锚点，应被跳过）"""
+        for eu in en_untrans_paras:
+            if _fuzzy_match_untranslatable(cn_p, eu):
+                return True
+        return False
+
     rows = []
     cn_idx = 0
 
@@ -1110,28 +1151,40 @@ def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
             rows.append(
                 f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
             )
-            # 同步中文游标：用模糊匹配跳过中文侧对应的锚点段落
-            for lookahead in range(min(3, len(paras_cn) - cn_idx)):
+            # 同步中文游标：跳过 CN 中与此 EN 段落匹配的段落
+            for lookahead in range(min(5, len(paras_cn) - cn_idx)):
                 check_idx = cn_idx + lookahead
                 if check_idx < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[check_idx], en):
                     cn_idx = check_idx + 1
                     break
-            else:
-                # 没找到精确匹配，跳过中文侧的短段落（被翻译过的表头）
-                if cn_idx < len(paras_cn):
-                    cn_p = paras_cn[cn_idx].strip()
-                    if _is_untranslatable(paras_cn[cn_idx]) or len(cn_p.split()) <= 5:
-                        cn_idx += 1
         else:
             # 可翻译段落 → 左右对齐
-            while cn_idx < len(paras_cn) and _is_untranslatable(paras_cn[cn_idx]):
+            # 跳过 CN 中的锚点段落（与 EN untrans 段落匹配的）
+            while cn_idx < len(paras_cn) and _cn_is_anchor(paras_cn[cn_idx]):
                 cn_idx += 1
-            cn = paras_cn[cn_idx] if cn_idx < len(paras_cn) else ""
-            cn_idx += 1
-            rows.append(
-                f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
-                f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
-            )
+
+            if cn_idx < len(paras_cn):
+                cn = paras_cn[cn_idx]
+                # 验证：CN 段落确实是 EN 段落的翻译
+                if _is_cn_translation_of(cn, en):
+                    rows.append(
+                        f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
+                        f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
+                    )
+                    cn_idx += 1
+                else:
+                    # CN 段落不是翻译（可能是未翻译的原文复制）→ 跨两栏
+                    rows.append(
+                        f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
+                    )
+                    # 如果 CN 也是相同内容，跳过它
+                    if _fuzzy_match_untranslatable(cn, en):
+                        cn_idx += 1
+            else:
+                # CN 已耗尽 → 跨两栏
+                rows.append(
+                    f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
+                )
 
     if not rows:
         rows.append(f'<div class="pg-full"><pre>{_esc(text_orig)}</pre></div>')
@@ -1151,30 +1204,41 @@ def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
         next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
         en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
 
+    en_untrans_paras = [paras_en[i] for i in range(len(paras_en)) if en_untrans[i]]
+
+    def _cn_is_anchor(cn_p: str) -> bool:
+        for eu in en_untrans_paras:
+            if _fuzzy_match_untranslatable(cn_p, eu):
+                return True
+        return False
+
     rows = []
     cn_idx = 0
     for ei, en in enumerate(paras_en):
         if en_untrans[ei]:
             rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
-            for lookahead in range(min(3, len(paras_cn) - cn_idx)):
+            for lookahead in range(min(5, len(paras_cn) - cn_idx)):
                 check_idx = cn_idx + lookahead
                 if check_idx < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[check_idx], en):
                     cn_idx = check_idx + 1
                     break
-            else:
-                if cn_idx < len(paras_cn):
-                    cn_p = paras_cn[cn_idx].strip()
-                    if _is_untranslatable(paras_cn[cn_idx]) or len(cn_p.split()) <= 5:
-                        cn_idx += 1
         else:
-            while cn_idx < len(paras_cn) and _is_untranslatable(paras_cn[cn_idx]):
+            while cn_idx < len(paras_cn) and _cn_is_anchor(paras_cn[cn_idx]):
                 cn_idx += 1
-            cn = paras_cn[cn_idx] if cn_idx < len(paras_cn) else ""
-            cn_idx += 1
-            rows.append(
-                f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
-                f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
-            )
+            if cn_idx < len(paras_cn):
+                cn = paras_cn[cn_idx]
+                if _is_cn_translation_of(cn, en):
+                    rows.append(
+                        f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
+                        f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
+                    )
+                    cn_idx += 1
+                else:
+                    rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
+                    if _fuzzy_match_untranslatable(cn, en):
+                        cn_idx += 1
+            else:
+                rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
     return '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
 
 
