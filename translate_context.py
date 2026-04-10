@@ -743,21 +743,45 @@ def _esc(text: str) -> str:
 
 
 def _split_body_and_diff(body: str) -> tuple:
-    """从邮件 body 中分离出 ```diff...``` 代码块。
+    """从邮件 body 中分离出 diff 代码块。
+
+    支持两种格式：
+      1. ```diff ... ``` 围栏格式
+      2. 裸露 diff（以 '--- a/' 开头的连续 diff 行）
 
     Returns:
-        (text_part, diff_part) — text_part 是正文，diff_part 是 diff 代码（不含围栏标记）
+        (text_part, diff_part) — text_part 是正文，diff_part 是 diff 代码
     """
-    # 匹配 ```diff ... ``` 块
+    # 格式1：```diff ... ``` 围栏块
     m = re.search(r'```diff\s*\n(.*?)```', body, re.DOTALL)
     if m:
         text_part = body[:m.start()].rstrip()
         diff_part = m.group(1).strip()
-        # 如果 ``` 后面还有内容，也加回 text_part
         after = body[m.end():].strip()
         if after:
             text_part = text_part + "\n" + after
         return text_part, diff_part
+
+    # 格式2：裸露 diff — 从 diffstat 或 '--- a/' 开始到末尾
+    # 先尝试匹配 diffstat 行（如 "kernel/sched/fair.c | 137 +++..."）后跟 "--- a/"
+    m = re.search(
+        r'^([ \t]*\S+\.\w+\s+\|\s+\d+.*\n)+\s*\d+\s+files?\s+changed.*\n',
+        body, re.MULTILINE,
+    )
+    diff_start = None
+    if m:
+        diff_start = m.start()
+    else:
+        # 直接找 '--- a/' 开头
+        m2 = re.search(r'^--- a/', body, re.MULTILINE)
+        if m2:
+            diff_start = m2.start()
+
+    if diff_start is not None:
+        text_part = body[:diff_start].rstrip()
+        diff_part = body[diff_start:].strip()
+        return text_part, diff_part
+
     return body, ""
 
 
