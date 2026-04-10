@@ -956,10 +956,9 @@ def _html_email_node(
     body_orig = em.get("body", "")
     has_translation = body_cn and body_cn != body_orig
 
-    # 分离 diff 代码块
-    text_cn, diff_cn = _split_body_and_diff(body_cn) if has_translation else ("", "")
-    text_orig, diff_orig = _split_body_and_diff(body_orig)
-    # 取最长的 diff（翻译版可能丢失 diff，用原文补）
+    # 分离 diff 代码块（仅用于独立折叠展示）
+    _, diff_cn = _split_body_and_diff(body_cn) if has_translation else ("", "")
+    _, diff_orig = _split_body_and_diff(body_orig)
     diff_code = diff_cn or diff_orig
 
     # 邮件卡片内容
@@ -973,9 +972,10 @@ def _html_email_node(
     card.append(f'  </div>')
 
     if has_translation:
-        card.append(f'  {_render_bilingual_body(text_cn, text_orig)}')
+        # 双栏对比：两边都用完整文本，保持内容对齐
+        card.append(f'  {_render_bilingual_body(body_cn, body_orig)}')
     else:
-        card.append(f'  <div class="email-body"><pre>{_esc(text_orig)}</pre></div>')
+        card.append(f'  <div class="email-body"><pre>{_esc(body_orig)}</pre></div>')
 
     # diff 代码块：独立可折叠
     if diff_code:
