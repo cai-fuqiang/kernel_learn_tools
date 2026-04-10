@@ -165,6 +165,21 @@ def _is_code_or_data_line(line):
         if (re.search(r'\d', s) or re.search(r'\w+_\w+', s)
                 or any(w.isupper() and len(w) > 1 for w in s.split())):
             return True
+    # ASCII 图表行：包含连续 ---|、|---、|<、>字母 等绘图字符
+    if re.search(r'[|][-=]{2,}|[-=]{2,}[|]', s):
+        return True
+    if re.search(r'[|][-=*]+[|]', s):
+        return True
+    # 包含 >字母 或 字母|< 格式的图表行
+    if re.search(r'>[A-Z]\s+\|', s) or re.search(r'\|<', s):
+        return True
+    # 变量赋值行：t=数字、V=数字、d=数字 等
+    if re.match(r'\s*[a-zA-Z]\s*=\s*\d+', s):
+        return True
+    # 行中大量非字母字符（>60%），如绘图行 "---|---------|-------*-|"
+    alpha_count = sum(1 for c in s if c.isalpha())
+    if len(s) > 5 and alpha_count < len(s) * 0.3:
+        return True
     return False
 
 
@@ -1023,6 +1038,11 @@ def _is_untranslatable(para: str) -> bool:
                            or (l.strip().startswith('[...') and '...]' in l.strip()))
         if untrans_count >= len(non_empty) * 0.6:
             return True
+    # 段落整体非字母字符比例高（>70%）→ ASCII 图表/数据表
+    all_text = ' '.join(non_empty)
+    alpha_count = sum(1 for c in all_text if c.isalpha())
+    if len(all_text) > 20 and alpha_count < len(all_text) * 0.3:
+        return True
     return False
 
 
@@ -1111,16 +1131,54 @@ def _is_cn_translation_of(cn_para: str, en_para: str) -> bool:
     return True
 
 
+def _translation_similarity(cn_para: str, en_para: str) -> float:
+    """估算 CN 段落与 EN 段落的翻译相似度分数。
+
+    分数越高表示越可能是翻译关系。用于在多个候选 CN 段落中选最佳匹配。
+    返回 0.0~1.0 的分数。
+    """
+    cs = cn_para.strip()
+    es = en_para.strip()
+    if not cs or not es:
+        return 0.0
+
+    # 完全相同或行集合高度重叠 → 不是翻译
+    if not _is_cn_translation_of(cs, es):
+        return 0.0
+
+    score = 0.0
+
+    # 1. 长度比例相似 → 翻译通常长度接近（中文可能更短一些）
+    len_ratio = min(len(cs), len(es)) / max(len(cs), len(es)) if max(len(cs), len(es)) > 0 else 0
+    score += len_ratio * 0.3
+
+    # 2. 共享的数字/专有名词/符号 → 翻译中通常保留
+    cn_tokens = set(re.findall(r'[A-Z][a-z]+|[A-Z]{2,}|[a-z_]{4,}|\d+', cs))
+    en_tokens = set(re.findall(r'[A-Z][a-z]+|[A-Z]{2,}|[a-z_]{4,}|\d+', es))
+    if en_tokens:
+        token_overlap = len(cn_tokens & en_tokens) / len(en_tokens)
+        score += token_overlap * 0.5
+
+    # 3. 含中文字符 → 更可能是翻译结果
+    has_chinese = bool(re.search(r'[\u4e00-\u9fff]', cs))
+    if has_chinese:
+        score += 0.2
+
+    return min(score, 1.0)
+
+
 def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
 
     核心原则：左侧(中文)一定是右侧(英文)内容的翻译。
+    即使翻译阶段漏网翻译了不该翻译的段落，也不影响其他段落的正确对齐。
 
-    策略：以英文原文段落为骨架，仅以 EN 侧的 untrans 判断为准：
-      1. EN untrans=True → 横跨两栏 (pg-full)，同时同步跳过 CN 中对应段落
-      2. EN untrans=False → 左右对齐 (pg-cell)，从 CN 中取翻译段落
-         - 跳过 CN 中与任何 EN untrans 段落模糊匹配的段落（它们是锚点）
-         - 验证取到的 CN 段落确实是翻译（非原文复制），否则改为跨两栏
+    策略：以英文原文段落为骨架：
+      1. EN untrans=True → 横跨两栏 (pg-full)
+      2. EN untrans=False → 在 CN 段落中向前搜索最佳翻译匹配
+         - 在 cn_idx 起的窗口内（最多看5段）找翻译相似度最高的 CN 段落
+         - 跳过中间不匹配的 CN 段落（被误翻译的不可翻译内容）
+         - 找不到匹配则 EN 段落跨两栏显示
     """
     paras_cn = _split_paragraphs(text_cn)
     paras_en = _split_paragraphs(text_orig)
@@ -1132,16 +1190,6 @@ def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
         next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
         en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
 
-    # 收集所有 EN untrans 段落，用于后续快速判断 CN 段落是否是锚点
-    en_untrans_paras = [paras_en[i] for i in range(len(paras_en)) if en_untrans[i]]
-
-    def _cn_is_anchor(cn_p: str) -> bool:
-        """判断 CN 段落是否与某个 EN untrans 段落匹配（即锚点，应被跳过）"""
-        for eu in en_untrans_paras:
-            if _fuzzy_match_untranslatable(cn_p, eu):
-                return True
-        return False
-
     rows = []
     cn_idx = 0
 
@@ -1152,36 +1200,34 @@ def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
                 f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
             )
             # 同步中文游标：跳过 CN 中与此 EN 段落匹配的段落
-            for lookahead in range(min(5, len(paras_cn) - cn_idx)):
-                check_idx = cn_idx + lookahead
-                if check_idx < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[check_idx], en):
-                    cn_idx = check_idx + 1
+            for la in range(min(5, len(paras_cn) - cn_idx)):
+                ci = cn_idx + la
+                if ci < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[ci], en):
+                    cn_idx = ci + 1
                     break
         else:
-            # 可翻译段落 → 左右对齐
-            # 跳过 CN 中的锚点段落（与 EN untrans 段落匹配的）
-            while cn_idx < len(paras_cn) and _cn_is_anchor(paras_cn[cn_idx]):
-                cn_idx += 1
+            # 可翻译段落 → 在 CN 中向前搜索最佳翻译匹配
+            best_ci = -1
+            best_score = 0.0
+            window = min(8, len(paras_cn) - cn_idx)
+            for la in range(window):
+                ci = cn_idx + la
+                if ci >= len(paras_cn):
+                    break
+                sc = _translation_similarity(paras_cn[ci], en)
+                if sc > best_score:
+                    best_score = sc
+                    best_ci = ci
 
-            if cn_idx < len(paras_cn):
-                cn = paras_cn[cn_idx]
-                # 验证：CN 段落确实是 EN 段落的翻译
-                if _is_cn_translation_of(cn, en):
-                    rows.append(
-                        f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
-                        f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
-                    )
-                    cn_idx += 1
-                else:
-                    # CN 段落不是翻译（可能是未翻译的原文复制）→ 跨两栏
-                    rows.append(
-                        f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
-                    )
-                    # 如果 CN 也是相同内容，跳过它
-                    if _fuzzy_match_untranslatable(cn, en):
-                        cn_idx += 1
+            if best_ci >= 0 and best_score >= 0.15:
+                # 找到匹配 → 左右对齐，跳过中间被误翻译的段落
+                rows.append(
+                    f'<div class="pg-cell"><pre>{_esc(paras_cn[best_ci])}</pre></div>'
+                    f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
+                )
+                cn_idx = best_ci + 1
             else:
-                # CN 已耗尽 → 跨两栏
+                # 找不到匹配 → 跨两栏
                 rows.append(
                     f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
                 )
@@ -1204,39 +1250,34 @@ def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
         next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
         en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
 
-    en_untrans_paras = [paras_en[i] for i in range(len(paras_en)) if en_untrans[i]]
-
-    def _cn_is_anchor(cn_p: str) -> bool:
-        for eu in en_untrans_paras:
-            if _fuzzy_match_untranslatable(cn_p, eu):
-                return True
-        return False
-
     rows = []
     cn_idx = 0
     for ei, en in enumerate(paras_en):
         if en_untrans[ei]:
             rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
-            for lookahead in range(min(5, len(paras_cn) - cn_idx)):
-                check_idx = cn_idx + lookahead
-                if check_idx < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[check_idx], en):
-                    cn_idx = check_idx + 1
+            for la in range(min(5, len(paras_cn) - cn_idx)):
+                ci = cn_idx + la
+                if ci < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[ci], en):
+                    cn_idx = ci + 1
                     break
         else:
-            while cn_idx < len(paras_cn) and _cn_is_anchor(paras_cn[cn_idx]):
-                cn_idx += 1
-            if cn_idx < len(paras_cn):
-                cn = paras_cn[cn_idx]
-                if _is_cn_translation_of(cn, en):
-                    rows.append(
-                        f'<div class="pg-cell"><pre>{_esc(cn)}</pre></div>'
-                        f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
-                    )
-                    cn_idx += 1
-                else:
-                    rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
-                    if _fuzzy_match_untranslatable(cn, en):
-                        cn_idx += 1
+            best_ci = -1
+            best_score = 0.0
+            window = min(8, len(paras_cn) - cn_idx)
+            for la in range(window):
+                ci = cn_idx + la
+                if ci >= len(paras_cn):
+                    break
+                sc = _translation_similarity(paras_cn[ci], en)
+                if sc > best_score:
+                    best_score = sc
+                    best_ci = ci
+            if best_ci >= 0 and best_score >= 0.15:
+                rows.append(
+                    f'<div class="pg-cell"><pre>{_esc(paras_cn[best_ci])}</pre></div>'
+                    f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
+                )
+                cn_idx = best_ci + 1
             else:
                 rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
     return '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
