@@ -846,7 +846,7 @@ pre.checklist {{
 }}
 .controls button:hover {{ background: var(--border); color: var(--text); }}
 
-/* 段落对齐网格 */
+/* 段落对齐网格: 左=英文原文, 右=中文翻译 */
 .para-grid {{
   display: grid; grid-template-columns: 1fr 1fr; width: 100%;
   border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
@@ -860,24 +860,28 @@ pre.checklist {{
 .para-grid .pg-cell pre {{
   font-family: 'SF Mono','Consolas',monospace; font-size: 13px;
   white-space: pre-wrap; word-wrap: break-word; line-height: 1.5;
-  color: var(--text); background: transparent; margin: 0;
+  color: var(--text-muted); background: transparent; margin: 0; font-size: 12px;
 }}
-.para-grid .pg-cell.pg-orig pre {{ color: var(--text-muted); font-size: 12px; }}
-.para-grid .pg-full {{
-  grid-column: 1 / -1; padding: 6px 12px;
+.para-grid .pg-cell.pg-cn pre {{ color: var(--text); font-size: 13px; }}
+.para-grid .pg-left {{
+  padding: 6px 12px; border-right: 1px solid var(--border);
   border-bottom: 1px solid rgba(48,54,61,0.5);
 }}
-.para-grid .pg-full pre {{
+.para-grid .pg-left pre {{
   font-family: 'SF Mono','Consolas',monospace; font-size: 13px;
   white-space: pre-wrap; word-wrap: break-word; line-height: 1.5;
-  color: var(--text-muted); background: transparent; margin: 0;
+  color: var(--text-muted); background: transparent; margin: 0; font-size: 12px;
+}}
+.para-grid .pg-spacer {{
+  border-bottom: 1px solid rgba(48,54,61,0.5);
 }}
 
 /* 响应式：窄屏切上下布局 */
 @media (max-width: 768px) {{
   .para-grid {{ grid-template-columns: 1fr; }}
   .para-grid .pg-cell:nth-child(odd) {{ border-right: none; }}
-  .para-grid .pg-full {{ grid-column: 1; }}
+  .para-grid .pg-left {{ border-right: none; }}
+  .para-grid .pg-spacer {{ display: none; }}
 }}
 
 /* Diff 翻译注释行高亮 */
@@ -1148,37 +1152,177 @@ def _translation_similarity(cn_para: str, en_para: str) -> float:
 
     score = 0.0
 
-    # 1. 长度比例相似 → 翻译通常长度接近（中文可能更短一些）
-    len_ratio = min(len(cs), len(es)) / max(len(cs), len(es)) if max(len(cs), len(es)) > 0 else 0
-    score += len_ratio * 0.3
+    # 1. 长度比例相似（中文字符计为2，因为英文单词平均5字符）
+    cn_len = sum(2 if '\u4e00' <= c <= '\u9fff' else 1 for c in cs)
+    en_len = len(es)
+    if max(cn_len, en_len) > 0:
+        len_ratio = min(cn_len, en_len) / max(cn_len, en_len)
+        if len_ratio < 0.15:
+            return 0.0  # 长度差异过大，不可能是翻译
+        score += len_ratio * 0.3
 
-    # 2. 共享的数字/专有名词/符号 → 翻译中通常保留
+    # 2. 语义单元数比例（翻译不会大幅改变语义量）
+    #    中文：每个汉字≈0.5个英文单词，再加上空格分割的英文词
+    cn_chinese_chars = sum(1 for c in cs if '\u4e00' <= c <= '\u9fff')
+    cn_word_est = cn_chinese_chars * 0.5 + len(re.findall(r'[A-Za-z]+', cs))
+    en_words = len(es.split())
+    if max(cn_word_est, en_words) > 0:
+        word_ratio = min(cn_word_est, en_words) / max(cn_word_est, en_words)
+        score += word_ratio * 0.25
+
+    # 3. 共享的数字/专有名词/符号 → 翻译中通常保留
     cn_tokens = set(re.findall(r'[A-Z][a-z]+|[A-Z]{2,}|[a-z_]{4,}|\d+', cs))
     en_tokens = set(re.findall(r'[A-Z][a-z]+|[A-Z]{2,}|[a-z_]{4,}|\d+', es))
     if en_tokens:
-        token_overlap = len(cn_tokens & en_tokens) / len(en_tokens)
-        score += token_overlap * 0.5
+        overlap = cn_tokens & en_tokens
+        # 使用 overlap 数量的对数缩放，减少短段落高比例的偏差
+        token_overlap = len(overlap) / len(en_tokens)
+        # 额外奖励多个 token 重叠
+        if len(overlap) >= 2:
+            score += min(token_overlap * 0.4 + 0.05, 0.4)
+        else:
+            score += token_overlap * 0.35
+        # 惩罚：EN有很多专有名词/标识符但CN中一个都没有
+        if len(en_tokens) >= 3 and len(overlap) == 0:
+            score *= 0.4
+    else:
+        score += 0.05
 
-    # 3. 含中文字符 → 更可能是翻译结果
+    # 4. 含中文字符 → 更可能是翻译结果
     has_chinese = bool(re.search(r'[\u4e00-\u9fff]', cs))
     if has_chinese:
-        score += 0.2
+        score += 0.15
 
     return min(score, 1.0)
+
+
+def _optimal_alignment(paras_cn: list, paras_en: list, en_untrans: list) -> list:
+    """使用动态规划找到最优的顺序一致的段落对齐。
+
+    返回列表，每个元素对应一个 EN 段落：
+      - ('pair', cn_idx)    → CN[cn_idx] 与 EN[ei] 配对
+      - ('untrans',)        → EN[ei] 是不可翻译段落
+      - ('unpaired',)       → EN[ei] 找不到匹配的 CN 段落
+    """
+    n_cn = len(paras_cn)
+    n_en = len(paras_en)
+
+    # 提取可翻译的 EN 段落索引
+    trans_en = [ei for ei in range(n_en) if not en_untrans[ei]]
+
+    if not trans_en or n_cn == 0:
+        # 无可翻译段落或无 CN 段落
+        result = []
+        for ei in range(n_en):
+            if en_untrans[ei]:
+                result.append(('untrans',))
+            else:
+                result.append(('unpaired',))
+        return result
+
+    # 预计算 CN 段落是否不可翻译（引用、签名等不应配对到左侧）
+    cn_untrans = [_is_untranslatable(paras_cn[ci]) for ci in range(n_cn)]
+
+    # 计算可翻译 EN 与可翻译 CN 的相似度矩阵
+    scores = {}
+    for ei in trans_en:
+        for ci in range(n_cn):
+            if cn_untrans[ci]:
+                continue  # CN 侧引用/签名段落不参与配对
+            sc = _translation_similarity(paras_cn[ci], paras_en[ei])
+            if sc >= 0.15:
+                scores[(ci, ei)] = sc
+
+    # DP: 找到最优顺序一致匹配
+    # 在 skip_en 时给予一个小的负分惩罚，鼓励匹配更多段落
+    # 这防止错误匹配"消耗"一个好的CN段落而导致后续大量unpaired
+    n_te = len(trans_en)
+    SKIP_EN_PENALTY = -0.15  # 跳过可翻译EN段落的惩罚
+
+    # dp[ti+1][ci+1] 表示前 ti 个可翻译EN和前 ci 个CN段落的最优匹配
+    dp = [[0.0] * (n_cn + 1) for _ in range(n_te + 1)]
+    choice = [[None] * (n_cn + 1) for _ in range(n_te + 1)]
+
+    for ti in range(n_te):
+        ei = trans_en[ti]
+        for ci in range(n_cn):
+            # 选项1: 不匹配 CN[ci]（跳过CN段落，无惩罚）
+            if dp[ti + 1][ci] >= dp[ti + 1][ci + 1]:
+                dp[ti + 1][ci + 1] = dp[ti + 1][ci]
+                choice[ti + 1][ci + 1] = ('skip_cn', ti, ci)
+
+            # 选项2: 不匹配 trans_en[ti]（跳过EN段落，有惩罚）
+            skip_score = dp[ti][ci + 1] + SKIP_EN_PENALTY
+            if skip_score > dp[ti + 1][ci + 1]:
+                dp[ti + 1][ci + 1] = skip_score
+                choice[ti + 1][ci + 1] = ('skip_en', ti, ci)
+
+            # 选项3: 匹配 CN[ci] 与 trans_en[ti]
+            sc = scores.get((ci, ei), 0.0)
+            if sc > 0 and dp[ti][ci] + sc > dp[ti + 1][ci + 1]:
+                dp[ti + 1][ci + 1] = dp[ti][ci] + sc
+                choice[ti + 1][ci + 1] = ('match', ti, ci)
+
+        # 处理最后一列：跳过 trans_en[ti]（有惩罚）
+        skip_score = dp[ti][n_cn] + SKIP_EN_PENALTY
+        if skip_score > dp[ti + 1][n_cn]:
+            dp[ti + 1][n_cn] = skip_score
+            choice[ti + 1][n_cn] = ('skip_en', ti, n_cn - 1)
+
+    # 最后一行：跳过剩余 CN
+    for ci in range(n_cn):
+        if dp[n_te][ci] >= dp[n_te][ci + 1]:
+            dp[n_te][ci + 1] = dp[n_te][ci]
+            choice[n_te][ci + 1] = ('skip_cn', n_te - 1, ci)
+
+    # 回溯找匹配对
+    matches = {}  # trans_en index -> cn_idx
+    ti, ci = n_te, n_cn
+    while ti > 0 or ci > 0:
+        if ti == 0:
+            break
+        if ci == 0:
+            ti -= 1
+            continue
+        ch = choice[ti][ci]
+        if ch is None:
+            break
+        if ch[0] == 'match':
+            matches[ch[1]] = ch[2]  # trans_en[ch[1]] matched with CN[ch[2]]
+            ti -= 1
+            ci -= 1
+        elif ch[0] == 'skip_cn':
+            ci -= 1
+        elif ch[0] == 'skip_en':
+            ti -= 1
+
+    # 构建结果
+    result = []
+    for ei in range(n_en):
+        if en_untrans[ei]:
+            result.append(('untrans',))
+        else:
+            ti_idx = trans_en.index(ei)
+            if ti_idx in matches:
+                result.append(('pair', matches[ti_idx]))
+            else:
+                result.append(('unpaired',))
+
+    return result
 
 
 def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
 
-    核心原则：左侧(中文)一定是右侧(英文)内容的翻译。
-    即使翻译阶段漏网翻译了不该翻译的段落，也不影响其他段落的正确对齐。
+    布局：左侧=英文原文，右侧=中文翻译。
+    核心原则：右侧(中文)一定是左侧(英文)内容的翻译。
 
-    策略：以英文原文段落为骨架：
-      1. EN untrans=True → 横跨两栏 (pg-full)
-      2. EN untrans=False → 在 CN 段落中向前搜索最佳翻译匹配
-         - 在 cn_idx 起的窗口内（最多看5段）找翻译相似度最高的 CN 段落
-         - 跳过中间不匹配的 CN 段落（被误翻译的不可翻译内容）
-         - 找不到匹配则 EN 段落跨两栏显示
+    策略：使用动态规划全局最优匹配：
+      1. 预计算所有 (CN, EN) 对的翻译相似度
+      2. DP 找到总分最大的顺序一致匹配
+      3. EN untrans → 左侧显示原文，右侧留空
+      4. EN 配对 → 左EN右CN对齐显示
+      5. EN 未配对 → 左侧显示原文，右侧留空
     """
     paras_cn = _split_paragraphs(text_cn)
     paras_en = _split_paragraphs(text_orig)
@@ -1190,57 +1334,44 @@ def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
         next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
         en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
 
+    # 全局最优对齐
+    alignment = _optimal_alignment(paras_cn, paras_en, en_untrans)
+
     rows = []
-    cn_idx = 0
-
     for ei, en in enumerate(paras_en):
-        if en_untrans[ei]:
-            # 不可翻译段落 → 横跨两栏
+        action = alignment[ei]
+        if action[0] == 'untrans':
+            # 不可翻译段落 → 左侧显示原文，右侧留空
             rows.append(
-                f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-left"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-spacer"></div>'
             )
-            # 同步中文游标：跳过 CN 中与此 EN 段落匹配的段落
-            for la in range(min(5, len(paras_cn) - cn_idx)):
-                ci = cn_idx + la
-                if ci < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[ci], en):
-                    cn_idx = ci + 1
-                    break
+        elif action[0] == 'pair':
+            ci = action[1]
+            # 左=EN原文, 右=CN翻译
+            rows.append(
+                f'<div class="pg-cell"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-cell pg-cn"><pre>{_esc(paras_cn[ci])}</pre></div>'
+            )
         else:
-            # 可翻译段落 → 在 CN 中向前搜索最佳翻译匹配
-            best_ci = -1
-            best_score = 0.0
-            window = min(8, len(paras_cn) - cn_idx)
-            for la in range(window):
-                ci = cn_idx + la
-                if ci >= len(paras_cn):
-                    break
-                sc = _translation_similarity(paras_cn[ci], en)
-                if sc > best_score:
-                    best_score = sc
-                    best_ci = ci
-
-            if best_ci >= 0 and best_score >= 0.15:
-                # 找到匹配 → 左右对齐，跳过中间被误翻译的段落
-                rows.append(
-                    f'<div class="pg-cell"><pre>{_esc(paras_cn[best_ci])}</pre></div>'
-                    f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
-                )
-                cn_idx = best_ci + 1
-            else:
-                # 找不到匹配 → 跨两栏
-                rows.append(
-                    f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
-                )
+            # 未配对 → 左侧显示原文，右侧留空
+            rows.append(
+                f'<div class="pg-left"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-spacer"></div>'
+            )
 
     if not rows:
-        rows.append(f'<div class="pg-full"><pre>{_esc(text_orig)}</pre></div>')
+        rows.append(
+            f'<div class="pg-left"><pre>{_esc(text_orig)}</pre></div>'
+            f'<div class="pg-spacer"></div>'
+        )
 
     grid = '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
     return grid
 
 
 def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
-    """渲染 commit message 的段落对齐对比"""
+    """渲染 commit message 的段落对齐对比: 左EN右CN"""
     paras_cn = _split_paragraphs(cm_cn)
     paras_en = _split_paragraphs(cm_orig)
 
@@ -1250,36 +1381,27 @@ def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
         next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
         en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
 
+    alignment = _optimal_alignment(paras_cn, paras_en, en_untrans)
+
     rows = []
-    cn_idx = 0
     for ei, en in enumerate(paras_en):
-        if en_untrans[ei]:
-            rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
-            for la in range(min(5, len(paras_cn) - cn_idx)):
-                ci = cn_idx + la
-                if ci < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[ci], en):
-                    cn_idx = ci + 1
-                    break
+        action = alignment[ei]
+        if action[0] == 'untrans':
+            rows.append(
+                f'<div class="pg-left"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-spacer"></div>'
+            )
+        elif action[0] == 'pair':
+            ci = action[1]
+            rows.append(
+                f'<div class="pg-cell"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-cell pg-cn"><pre>{_esc(paras_cn[ci])}</pre></div>'
+            )
         else:
-            best_ci = -1
-            best_score = 0.0
-            window = min(8, len(paras_cn) - cn_idx)
-            for la in range(window):
-                ci = cn_idx + la
-                if ci >= len(paras_cn):
-                    break
-                sc = _translation_similarity(paras_cn[ci], en)
-                if sc > best_score:
-                    best_score = sc
-                    best_ci = ci
-            if best_ci >= 0 and best_score >= 0.15:
-                rows.append(
-                    f'<div class="pg-cell"><pre>{_esc(paras_cn[best_ci])}</pre></div>'
-                    f'<div class="pg-cell pg-orig"><pre>{_esc(en)}</pre></div>'
-                )
-                cn_idx = best_ci + 1
-            else:
-                rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
+            rows.append(
+                f'<div class="pg-left"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-spacer"></div>'
+            )
     return '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
 
 
@@ -1329,10 +1451,13 @@ def _html_email_node(
     card.append(f'  </div>')
 
     if has_translation:
-        # 双栏对比：使用去除 diff 后的正文，diff 在下方独立展示
+        # 双栏对比：左EN右CN，使用去除 diff 后的正文，diff 在下方独立展示
         card.append(f'  {_render_bilingual_body(text_cn, text_orig)}')
     else:
-        card.append(f'  <div class="email-body"><pre>{_esc(text_orig)}</pre></div>')
+        # 无翻译时：内容放在左侧栏
+        card.append(f'  <div class="para-grid">')
+        card.append(f'<div class="pg-left"><pre>{_esc(text_orig)}</pre></div><div class="pg-spacer"></div>')
+        card.append(f'  </div>')
 
     # diff 代码块：独立可折叠
     if diff_code:
