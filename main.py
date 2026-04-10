@@ -2,26 +2,23 @@
 """LKML 知识提取器 - 主程序
 
 使用示例:
-    # 使用 lore.kernel.org 搜索并生成线程化报告
-    python main.py --topic "FAIR_SLEEPING" --list linux-kernel --source lore --max-emails 50
-    
-    # 生用 lkml.org 搜索（备选方案）+ 多关键词组合
-    python main.py --topic "sched AND fair" --list linux-kernel --source lkml --max-emails 10
-    
+    # 以 git commit 为入口，自动提炼搜索词并查找相关邮件讨论
+    python main.py --commit HEAD --kernel-src /path/to/linux --source lkml
+
+    # 指定 commit hash
+    python main.py --commit abc1234 --kernel-src /path/to/linux
+
+    # 使用 lkml.org 搜索（备选方案）+ 多关键词组合
+    python main.py --topic "sched AND fair" --source lkml --max-emails 10
+
     # 生成带 OpenClaw 摘要的报告
-    python main.py --topic "sched/fair" --list linux-kernel --summarize --max-emails 30
-    
-    # 使用 Google 翻译并指定日期范围
-    python main.py --topic "scheduler" --list linux-kernel --translator google --date-from 2024-01-01 --date-to 2024-06-01
+    python main.py --topic "sched/fair" --summarize --max-emails 30
 
     # 搜索后进入 OpenClaw 交互问答
     python main.py --topic "FAIR_SLEEPING" --source lkml --interactive
 
     # 包含代码关联分析
     python main.py --topic "sched/fair" --source lkml --max-emails 5 --code-analysis
-
-    # 关联本地内核源码
-    python main.py --topic "sched/fair" --source lkml --code-analysis --kernel-src /path/to/linux
 """
 import argparse, json, logging, os, sys
 from datetime import datetime
@@ -31,6 +28,7 @@ from email_translator.lkml_client import LKMLClient
 from email_translator.thread_builder import build_threads
 from email_translator.summarizer import OpenClawSummarizer, InteractiveQA
 from email_translator.code_analyzer import CodeAnalyzer
+from email_translator.commit_analyzer import CommitAnalyzer
 from email_translator.output_generator import OutputGenerator
 from email_translator.config import OUTPUT_DIR, EMAILS_DIR
 
@@ -42,10 +40,24 @@ logger = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(description='LKML 知识提取器')
-    
-    # 搜索参数
-    parser.add_argument('--topic', required=True,
-                        help='搜索主题，支持 AND/OR 组合 (如: "sched AND fair", "CFS OR vruntime")')
+
+    # ── 入口模式（二选一）──────────────────────────────────────────────
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        '--commit',
+        metavar='REF',
+        help='以 git commit 为入口（hash / HEAD / HEAD~N 等），自动提炼搜索词'
+    )
+    input_group.add_argument(
+        '--topic',
+        help='直接指定搜索主题，支持 AND/OR 组合 (如: "sched AND fair")'
+    )
+
+    # commit 模式专用参数
+    parser.add_argument('--repo', default='.',
+                        help='本地 git 仓库路径（--commit 模式使用，默认当前目录）')
+    parser.add_argument('--search-term-index', type=int, default=0,
+                        help='使用第 N 个自动提炼的搜索词（默认 0 = 第一个）')
     parser.add_argument('--list', default='all', help='邮件列表名称 (如: linux-kernel, linux-mm, linux-sched)')
     parser.add_argument('--source', choices=['lore', 'lkml'], default='lore', help='数据源')
     parser.add_argument('--max-emails', type=int, default=20, help='最大邮件数')
@@ -82,6 +94,40 @@ def main():
     args = parser.parse_args()
     
     try:
+        # 步骤0: 如果是 --commit 模式，先解析 commit 提炼搜索词
+        commit_info = None
+        if args.commit:
+            logger.info("解析 commit: %s (repo: %s)", args.commit, args.repo)
+            ca = CommitAnalyzer(repo_path=args.repo)
+            commit_info = ca.analyze(args.commit)
+
+            print("\n" + "="*60)
+            print("  [Commit 分析结果]")
+            print("="*60)
+            print(commit_info.summary())
+            print(f"\n  子系统   : {', '.join(commit_info.subsystems) or '未识别'}")
+            print(f"  搜索日期 : {commit_info.date_from} ~ {commit_info.date_to}")
+            print(f"  候选搜索词:")
+            for idx, term in enumerate(commit_info.search_terms):
+                marker = " ◀ 使用中" if idx == args.search_term_index else ""
+                print(f"    [{idx}] {term}{marker}")
+            print("="*60 + "\n")
+
+            # 用选定的搜索词和日期范围覆盖 args
+            idx = min(args.search_term_index, len(commit_info.search_terms) - 1)
+            args.topic = commit_info.search_terms[idx]
+            if not args.date_from:
+                args.date_from = commit_info.date_from
+            if not args.date_to:
+                args.date_to = commit_info.date_to
+
+            # 如果 commit 里有 lore 直链，打印提示
+            if commit_info.lore_url:
+                print(f"  [提示] 发现 Lore 直链，将优先使用: {commit_info.lore_url}\n")
+
+            logger.info("使用搜索词: %r  日期: %s ~ %s",
+                        args.topic, args.date_from, args.date_to)
+
         # 步骤1: 搜索邮件
         logger.info("开始搜索邮件...")
         if args.source == 'lore':
@@ -181,7 +227,17 @@ def main():
             )
         
         logger.info("报告生成完成: %s", filepath)
-        
+
+        # 如果是 commit 模式，在报告末尾追加 commit 摘要
+        if commit_info:
+            with open(filepath, 'a', encoding='utf-8') as f:
+                f.write("\n---\n\n## Commit 入口信息\n\n")
+                f.write(f"```\n{commit_info.summary()}\n```\n\n")
+                f.write(f"**子系统**: {', '.join(commit_info.subsystems) or '未识别'}  \n")
+                f.write(f"**使用搜索词**: `{args.topic}`  \n")
+                f.write(f"**搜索日期范围**: {args.date_from} ~ {args.date_to}  \n")
+                f.write(f"**所有候选搜索词**: {' | '.join(commit_info.search_terms)}\n")
+
         # 步骤7: 交互式问答（可选，最后执行）
         if args.interactive:
             qa = InteractiveQA(
