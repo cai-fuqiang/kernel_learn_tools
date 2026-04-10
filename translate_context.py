@@ -153,6 +153,18 @@ def _is_code_or_data_line(line):
         return True
     if re.match(r'\s*->\s*#\d+', s):
         return True
+    # 含大数字（带逗号分隔）的数据/统计行，如 "sched  1,243,911  3,947,251"
+    if re.search(r'\d{1,3}(?:,\d{3}){1,}', s):
+        return True
+    # 下划线标识符 + 数字的统计行，如 "tick_check_preempts  12,899,049"
+    if re.match(r'\s*\w+_\w+\s+[\d,]+', s):
+        return True
+    # 表格/数据对齐行：多个单词以多空格分隔（>=2个连续空格），如 "schedstat  Base  EEVDF"
+    if re.search(r'\S\s{2,}\S', s) and len(s.split()) <= 8:
+        # 额外检查：至少包含一个数字或下划线标识符或全大写词
+        if (re.search(r'\d', s) or re.search(r'\w+_\w+', s)
+                or any(w.isupper() and len(w) > 1 for w in s.split())):
+            return True
     return False
 
 
@@ -203,6 +215,130 @@ def _clean_translation_artifacts(text):
     return '\n'.join(out)
 
 
+def _extract_comment_text(comment_lines: list) -> str:
+    """从多行注释行中提取纯文本内容"""
+    texts = []
+    for line in comment_lines:
+        s = line.lstrip()
+        if s.startswith(('+', '-', ' ')):
+            s = s[1:]
+        s = s.strip()
+        # 去掉注释标记
+        s = re.sub(r'^/\*+\s*', '', s)
+        s = re.sub(r'\s*\*+/$', '', s)
+        s = re.sub(r'^\*\s?', '', s)
+        s = s.strip()
+        if s:
+            texts.append(s)
+    return ' '.join(texts)
+
+
+def _translate_diff_comments(translator: 'BaseTranslator', diff_text: str) -> str:
+    """Translate C code comments in diff, keep code unchanged."""
+    if not diff_text or not translator:
+        return diff_text
+
+    lines = diff_text.split('\n')
+    result = []
+    i = 0
+    in_multiline = False
+    multiline_buf = []       # 收集多行注释的行
+    multiline_indices = []   # 对应的行索引
+
+    while i < len(lines):
+        line = lines[i]
+
+        # 跳过 diff 元数据行（不检查注释）
+        if line.startswith(('diff --git', 'index ', '--- ', '+++ ', '@@ ')):
+            if in_multiline:
+                # 多行注释被截断，放弃翻译
+                result.extend(multiline_buf)
+                in_multiline = False
+                multiline_buf = []
+            result.append(line)
+            i += 1
+            continue
+
+        # 获取代码行内容（去掉 +/- 前缀来检查注释）
+        stripped = line
+        prefix = ''
+        if line.startswith(('+', '-', ' ')):
+            prefix = line[0]
+            stripped = line[1:]
+
+        if in_multiline:
+            multiline_buf.append(line)
+            # 检查是否结束多行注释
+            if '*/' in stripped:
+                in_multiline = False
+                # 提取完整注释文本
+                comment_text = _extract_comment_text(multiline_buf)
+                if comment_text and len(comment_text) > 10:
+                    try:
+                        cn = translator.translate_email({"subject": "", "body": comment_text})
+                        cn_text = cn.get("body_cn", "")
+                        if cn_text and cn_text != comment_text:
+                            result.extend(multiline_buf)
+                            result.append(f'\x00CN\x00{prefix}/* {cn_text} */')
+                            multiline_buf = []
+                            i += 1
+                            continue
+                    except Exception:
+                        pass
+                result.extend(multiline_buf)
+                multiline_buf = []
+            i += 1
+            continue
+
+        # 检查多行注释开始 /* ... (无 */ 结尾)
+        if '/*' in stripped and '*/' not in stripped:
+            in_multiline = True
+            multiline_buf = [line]
+            i += 1
+            continue
+
+        # 单行注释：行内 /* ... */
+        m = re.search(r'/\*(.+?)\*/', stripped)
+        if m:
+            comment_body = m.group(1).strip()
+            if len(comment_body) > 10 and re.search(r'[a-zA-Z]{3,}', comment_body):
+                try:
+                    cn = translator.translate_email({"subject": "", "body": comment_body})
+                    cn_text = cn.get("body_cn", "")
+                    if cn_text and cn_text != comment_body:
+                        result.append(line)
+                        result.append(f'\x00CN\x00{prefix}/* {cn_text} */')
+                        i += 1
+                        continue
+                except Exception:
+                    pass
+
+        # 单行注释：// ...
+        m2 = re.search(r'//\s*(.+)', stripped)
+        if m2:
+            comment_body = m2.group(1).strip()
+            if len(comment_body) > 10 and re.search(r'[a-zA-Z]{3,}', comment_body):
+                try:
+                    cn = translator.translate_email({"subject": "", "body": comment_body})
+                    cn_text = cn.get("body_cn", "")
+                    if cn_text and cn_text != comment_body:
+                        result.append(line)
+                        result.append(f'\x00CN\x00{prefix}// {cn_text}')
+                        i += 1
+                        continue
+                except Exception:
+                    pass
+
+        result.append(line)
+        i += 1
+
+    # 如果多行注释在文件末尾未闭合
+    if multiline_buf:
+        result.extend(multiline_buf)
+
+    return '\n'.join(result)
+
+
 def translate_body(translator: BaseTranslator, body: str) -> str:
     """翻译邮件正文，按段落逐段翻译，保留代码块和引用折叠标记不翻译"""
     if not should_translate(body):
@@ -212,10 +348,23 @@ def translate_body(translator: BaseTranslator, body: str) -> str:
     raw_paragraphs = re.split(r'(\n\n+)', body)
     # raw_paragraphs 交替包含 [段落, 分隔符, 段落, 分隔符, ...]
 
+    # 提取非空段落列表用于上下文感知判断
+    content_parts = [p for p in raw_paragraphs if p.strip()]
+
     result_parts = []
     for part in raw_paragraphs:
         # 保留空行分隔符原样
         if not part.strip():
+            result_parts.append(part)
+            continue
+
+        # ── 上下文感知：获取前后非空段落 ──
+        part_idx = content_parts.index(part) if part in content_parts else -1
+        prev_part = content_parts[part_idx - 1] if part_idx > 0 else ""
+        next_part = content_parts[part_idx + 1] if part_idx >= 0 and part_idx < len(content_parts) - 1 else ""
+
+        # 上下文感知判断：短标题夹在数据段落之间 → 不翻译
+        if _is_untranslatable_in_context(part.strip(), prev_part.strip(), next_part.strip()):
             result_parts.append(part)
             continue
 
@@ -331,8 +480,14 @@ class ThreadNode:
         f = self.email.get("from", "")
         return f.split("<")[0].strip() or f
 
-    def total_count(self) -> int:
-        return 1 + sum(c.total_count() for c in self.children)
+    def total_count(self, _visited: set = None) -> int:
+        if _visited is None:
+            _visited = set()
+        nid = id(self)
+        if nid in _visited:
+            return 0
+        _visited.add(nid)
+        return 1 + sum(c.total_count(_visited) for c in self.children)
 
 
 def _normalize_subject(subject: str) -> str:
@@ -508,11 +663,17 @@ def _build_thread_tree(emails: List[dict]) -> List[dict]:
     return threads
 
 
-def _sort_children(nodes: List[ThreadNode]):
-    """递归地对子节点按时间排序"""
+def _sort_children(nodes: List[ThreadNode], _visited: set = None):
+    """递归地对子节点按时间排序（带循环检测）"""
+    if _visited is None:
+        _visited = set()
     for node in nodes:
+        nid = id(node)
+        if nid in _visited:
+            continue
+        _visited.add(nid)
         node.children.sort(key=lambda n: n.email.get("date", ""))
-        _sort_children(node.children)
+        _sort_children(node.children, _visited)
 
 
 # ─── HTML 模板 ─────────────────────────────────────────────────────────────────
@@ -703,6 +864,11 @@ pre.checklist {{
   .para-grid .pg-cell:nth-child(odd) {{ border-right: none; }}
   .para-grid .pg-full {{ grid-column: 1; }}
 }}
+
+/* Diff 翻译注释行高亮 */
+pre.diff .diff-comment-cn {{
+  color: var(--green); font-style: italic; opacity: 0.85;
+}}
 </style>
 </head>
 <body>
@@ -740,6 +906,22 @@ TAG_COLORS = {
 def _esc(text: str) -> str:
     """HTML 转义"""
     return html_module.escape(text, quote=True)
+
+
+def _esc_diff(text: str) -> str:
+    """HTML 转义 diff 文本，对翻译注释行加高亮 span"""
+    # 先按行处理，识别特殊标记行
+    CN_MARKER = '\x00CN\x00'
+    lines = text.split('\n')
+    result = []
+    for line in lines:
+        if line.startswith(CN_MARKER):
+            # 翻译注释行：去掉标记，转义内容，用 span 包裹
+            content = html_module.escape(line[len(CN_MARKER):], quote=True)
+            result.append(f'<span class="diff-comment-cn">{content}</span>')
+        else:
+            result.append(html_module.escape(line, quote=True))
+    return '\n'.join(result)
 
 
 def _split_body_and_diff(body: str) -> tuple:
@@ -844,34 +1026,104 @@ def _is_untranslatable(para: str) -> bool:
     return False
 
 
+def _is_untranslatable_in_context(para: str, prev_para: str, next_para: str) -> bool:
+    """上下文感知版本：判断段落是否不需要翻译。
+
+    除了 _is_untranslatable 的基础判断外，还考虑上下文：
+      - 短段落（<= 5 个单词）夹在不可翻译段落之间 → 数据表标题，不翻译
+      - 像 "Base: xxx" "EEVDF: xxx" 这样的标签行紧挨着数据段落 → 不翻译
+    """
+    if _is_untranslatable(para):
+        return True
+
+    s = para.strip()
+    lines = s.splitlines()
+    non_empty = [l for l in lines if l.strip()]
+    word_count = len(s.split())
+
+    prev_untrans = bool(prev_para) and _is_untranslatable(prev_para)
+    next_untrans = bool(next_para) and _is_untranslatable(next_para)
+
+    # 短段落（<= 5 个单词）夹在不可翻译段落之间 → 数据表标题/小节标题
+    if word_count <= 5 and (prev_untrans or next_untrans):
+        return True
+
+    # "Label: value" 格式行紧邻数据段落（如 "Base: v6.5-rc4-based kernel"）
+    if len(non_empty) <= 2 and all(re.match(r'^\s*\w[\w\s]*:\s+\S', l) for l in non_empty):
+        if prev_untrans or next_untrans:
+            return True
+
+    return False
+
+
+def _fuzzy_match_untranslatable(cn_para: str, en_para: str) -> bool:
+    """模糊判断中文侧段落是否与英文侧不可翻译段落匹配（用于同步锚点）。
+
+    采用多种策略：
+      1. strip 后完全相等
+      2. 压缩空白后相等
+      3. 行集合高度重叠（>= 80%）
+    """
+    cs, es = cn_para.strip(), en_para.strip()
+    if cs == es:
+        return True
+    # 压缩连续空白
+    cs_compact = re.sub(r'\s+', ' ', cs)
+    es_compact = re.sub(r'\s+', ' ', es)
+    if cs_compact == es_compact:
+        return True
+    # 行集合重叠
+    cn_lines = set(l.strip() for l in cs.splitlines() if l.strip())
+    en_lines = set(l.strip() for l in es.splitlines() if l.strip())
+    if en_lines and cn_lines:
+        overlap = len(cn_lines & en_lines)
+        if overlap >= len(en_lines) * 0.8:
+            return True
+    return False
+
+
 def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
 
     策略：以英文原文段落为骨架逐段处理：
-      1. 不可翻译段落 → 横跨两栏 (pg-full)
+      1. 不可翻译段落（含上下文感知） → 横跨两栏 (pg-full)
       2. 可翻译段落 → 左右对齐 (pg-cell)，中文侧从翻译文本中按顺序取
 
-    利用 translate_body 会原样保留不可翻译段落的特性，
-    用"与原文相同的段落"作为锚点，确保中英文段落严格对齐。
+    使用上下文感知判断 + 模糊匹配来同步锚点，避免对齐错位。
     """
     paras_cn = _split_paragraphs(text_cn)
     paras_en = _split_paragraphs(text_orig)
 
+    # 预计算每个英文段落是否不可翻译（上下文感知）
+    en_untrans = []
+    for idx, en in enumerate(paras_en):
+        prev_p = paras_en[idx - 1] if idx > 0 else ""
+        next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
+        en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
+
     rows = []
     cn_idx = 0
 
-    for en in paras_en:
-        if _is_untranslatable(en):
+    for ei, en in enumerate(paras_en):
+        if en_untrans[ei]:
             # 不可翻译段落 → 横跨两栏
             rows.append(
                 f'<div class="pg-full"><pre>{_esc(en)}</pre></div>'
             )
-            # 同步中文游标：跳过中文侧中与此段相同的锚点段落
-            if cn_idx < len(paras_cn) and paras_cn[cn_idx].strip() == en.strip():
-                cn_idx += 1
+            # 同步中文游标：用模糊匹配跳过中文侧对应的锚点段落
+            for lookahead in range(min(3, len(paras_cn) - cn_idx)):
+                check_idx = cn_idx + lookahead
+                if check_idx < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[check_idx], en):
+                    cn_idx = check_idx + 1
+                    break
+            else:
+                # 没找到精确匹配，跳过中文侧的短段落（被翻译过的表头）
+                if cn_idx < len(paras_cn):
+                    cn_p = paras_cn[cn_idx].strip()
+                    if _is_untranslatable(paras_cn[cn_idx]) or len(cn_p.split()) <= 5:
+                        cn_idx += 1
         else:
             # 可翻译段落 → 左右对齐
-            # 从中文侧取下一个段落，跳过中间的不可翻译锚点
             while cn_idx < len(paras_cn) and _is_untranslatable(paras_cn[cn_idx]):
                 cn_idx += 1
             cn = paras_cn[cn_idx] if cn_idx < len(paras_cn) else ""
@@ -892,13 +1144,28 @@ def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
     """渲染 commit message 的段落对齐对比"""
     paras_cn = _split_paragraphs(cm_cn)
     paras_en = _split_paragraphs(cm_orig)
+
+    en_untrans = []
+    for idx, en in enumerate(paras_en):
+        prev_p = paras_en[idx - 1] if idx > 0 else ""
+        next_p = paras_en[idx + 1] if idx < len(paras_en) - 1 else ""
+        en_untrans.append(_is_untranslatable_in_context(en, prev_p, next_p))
+
     rows = []
     cn_idx = 0
-    for en in paras_en:
-        if _is_untranslatable(en):
+    for ei, en in enumerate(paras_en):
+        if en_untrans[ei]:
             rows.append(f'<div class="pg-full"><pre>{_esc(en)}</pre></div>')
-            if cn_idx < len(paras_cn) and paras_cn[cn_idx].strip() == en.strip():
-                cn_idx += 1
+            for lookahead in range(min(3, len(paras_cn) - cn_idx)):
+                check_idx = cn_idx + lookahead
+                if check_idx < len(paras_cn) and _fuzzy_match_untranslatable(paras_cn[check_idx], en):
+                    cn_idx = check_idx + 1
+                    break
+            else:
+                if cn_idx < len(paras_cn):
+                    cn_p = paras_cn[cn_idx].strip()
+                    if _is_untranslatable(paras_cn[cn_idx]) or len(cn_p.split()) <= 5:
+                        cn_idx += 1
         else:
             while cn_idx < len(paras_cn) and _is_untranslatable(paras_cn[cn_idx]):
                 cn_idx += 1
@@ -913,9 +1180,16 @@ def _render_bilingual_commit(cm_cn: str, cm_orig: str) -> str:
 
 def _html_email_node(
     node: ThreadNode, idx_map: dict, translated_bodies: dict,
-    is_root: bool = False,
+    is_root: bool = False, _visited: set = None,
 ) -> str:
-    """递归渲染一个 ThreadNode 为 HTML"""
+    """递归渲染一个 ThreadNode 为 HTML（带循环检测）"""
+    if _visited is None:
+        _visited = set()
+    nid = id(node)
+    if nid in _visited:
+        return ""
+    _visited.add(nid)
+
     em = node.email
     i = idx_map.get(id(em))
     tag = em.get("tag", "")
@@ -930,9 +1204,14 @@ def _html_email_node(
     has_translation = body_cn and body_cn != body_orig
 
     # 分离 diff 代码块：翻译区域只保留正文，diff 单独展示
-    text_cn, diff_cn = _split_body_and_diff(body_cn) if has_translation else ("", "")
+    # diff 始终使用英文原文，不使用翻译版本（避免代码被翻译）
+    # 但使用预翻译的注释版本（如果存在）
     text_orig, diff_orig = _split_body_and_diff(body_orig)
-    diff_code = diff_cn or diff_orig
+    if has_translation:
+        text_cn, _ = _split_body_and_diff(body_cn)
+    else:
+        text_cn = ""
+    diff_code = translated_bodies.get(f"diff_{i}", diff_orig) if i is not None else diff_orig
 
     # 邮件卡片内容
     card = []
@@ -953,7 +1232,7 @@ def _html_email_node(
     # diff 代码块：独立可折叠
     if diff_code:
         card.append(f'  <details class="diff-block"><summary>代码变更 (diff)</summary>')
-        card.append(f'    <pre class="diff">{_esc(diff_code)}</pre>')
+        card.append(f'    <pre class="diff">{_esc_diff(diff_code)}</pre>')
         card.append(f'  </details>')
 
     card.append(f'</div>')
@@ -963,7 +1242,7 @@ def _html_email_node(
     if node.children:
         parts = []
         for child in node.children:
-            parts.append(_html_email_node(child, idx_map, translated_bodies))
+            parts.append(_html_email_node(child, idx_map, translated_bodies, _visited=_visited))
         children_html = '<div class="replies">' + "\n".join(parts) + "</div>"
 
     # 根邮件直接展开，回复用 details 折叠
@@ -1027,10 +1306,11 @@ def generate_html(
         else:
             cm_html = f'<pre class="commit-msg">{_esc(cm)}</pre>'
 
-    # Diff
+    # Diff（使用预翻译注释版本）
     diff_html = ""
     if diff:
-        diff_html = f'<pre class="diff">{_esc(diff)}</pre>'
+        diff_display = translated_bodies.get("__diff__", diff)
+        diff_html = f'<pre class="diff">{_esc_diff(diff_display)}</pre>'
 
     # 邮件线程树
     threads_html = ""
@@ -1151,6 +1431,20 @@ def main():
             time.sleep(1)
 
     print(f"  翻译完成: {done} 封, 跳过: {skipped} 封")
+
+    # 翻译 diff 中的注释
+    print("  翻译 diff 注释...")
+    # 全局 diff
+    if diff:
+        translated["__diff__"] = _translate_diff_comments(translator, diff)
+    # 每封邮件中的 diff
+    diff_done = 0
+    for i, em in enumerate(emails):
+        _, em_diff = _split_body_and_diff(em.get("body", ""))
+        if em_diff:
+            translated[f"diff_{i}"] = _translate_diff_comments(translator, em_diff)
+            diff_done += 1
+    print(f"  diff 注释翻译完成: {diff_done + (1 if diff else 0)} 个")
 
     # 生成
     fmt = args.format
