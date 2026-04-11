@@ -888,9 +888,41 @@ pre.checklist {{
 pre.diff .diff-comment-cn {{
   color: var(--green); font-style: italic; opacity: 0.85;
 }}
+
+/* ── 聚焦视图 ── */
+.focus-btn {{
+  background: transparent; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 6px;
+  margin-left: 4px; transition: all 0.15s;
+}}
+.focus-btn:hover {{ background: var(--border); color: var(--accent); }}
+.focus-bar {{
+  position: sticky; top: 0; z-index: 100;
+  background: var(--surface); border-bottom: 2px solid var(--accent);
+  padding: 8px 16px; display: none; align-items: center; gap: 10px;
+  font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}}
+.focus-bar.active {{ display: flex; }}
+.focus-bar .back-btn {{
+  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+  padding: 4px 12px; font-size: 12px; cursor: pointer; font-weight: 600;
+  white-space: nowrap;
+}}
+.focus-bar .back-btn:hover {{ opacity: 0.85; }}
+.focus-bar .breadcrumb {{ color: var(--text-muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+body.focusing .page-content {{ display: none; }}
+#focusContainer {{ display: none; }}
+#focusContainer.active {{ display: block; }}
+#focusContainer .replies {{ margin-left: 20px; padding-left: 16px; border-left: 2px solid var(--border); }}
 </style>
 </head>
 <body>
+<div class="focus-bar" id="focusBar">
+  <button class="back-btn" onclick="unfocusEmail()">← 返回全部</button>
+  <span class="breadcrumb" id="focusBreadcrumb"></span>
+</div>
+<div id="focusContainer"></div>
+<div class="page-content">
 <h1>{title}</h1>
 
 <h2>Commit 信息</h2>
@@ -907,7 +939,46 @@ pre.diff .diff-comment-cn {{
   <button onclick="document.querySelectorAll('details.reply-thread').forEach(d=>d.open=false)">收起全部回复</button>
 </div>
 {threads_html}
+</div><!-- .page-content -->
 
+<script>
+function focusEmail(nodeId) {{
+  var node = document.getElementById(nodeId);
+  if (!node) return;
+  // 记录滚动位置
+  window._focusPrevScroll = window.scrollY;
+  // 克隆目标节点到聚焦容器
+  var container = document.getElementById('focusContainer');
+  container.innerHTML = '';
+  var clone = node.cloneNode(true);
+  // 移除克隆中的 email-node id 避免冲突
+  clone.removeAttribute('id');
+  // 展开所有折叠的 details
+  clone.querySelectorAll('details').forEach(function(d){{ d.open = true; }});
+  container.appendChild(clone);
+  container.classList.add('active');
+  // 隐藏主内容
+  document.body.classList.add('focusing');
+  // 显示面包屑
+  var bar = document.getElementById('focusBar');
+  var bc = document.getElementById('focusBreadcrumb');
+  var author = node.getAttribute('data-author') || '';
+  var subject = node.getAttribute('data-subject') || '';
+  bc.textContent = author + ' — ' + subject;
+  bar.classList.add('active');
+  window.scrollTo(0, 0);
+}}
+function unfocusEmail() {{
+  document.body.classList.remove('focusing');
+  var container = document.getElementById('focusContainer');
+  container.innerHTML = '';
+  container.classList.remove('active');
+  var bar = document.getElementById('focusBar');
+  bar.classList.remove('active');
+  if (window._focusPrevScroll !== undefined) {{
+    window.scrollTo(0, window._focusPrevScroll);
+  }}
+}}
 </script>
 </body>
 </html>"""
@@ -1440,6 +1511,9 @@ def _html_email_node(
         text_cn = ""
     diff_code = translated_bodies.get(f"diff_{i}", diff_orig) if i is not None else diff_orig
 
+    # 节点唯一 ID
+    node_id = f'email-node-{i}' if i is not None else f'email-node-x{nid}'
+
     # 邮件卡片内容
     card = []
     card.append(f'<div class="email-card">')
@@ -1448,6 +1522,7 @@ def _html_email_node(
     card.append(f'    <span class="author">{_esc(author)}</span>')
     card.append(f'    <span class="tag" style="background:{color}">{_esc(label)}</span>')
     card.append(f'    <span class="date">{_esc(date)}</span>')
+    card.append(f'    <button class="focus-btn" onclick="focusEmail(\'{node_id}\')" title="聚焦此邮件（全宽显示）">&#128269;</button>')
     card.append(f'  </div>')
 
     if has_translation:
@@ -1476,19 +1551,26 @@ def _html_email_node(
         children_html = '<div class="replies">' + "\n".join(parts) + "</div>"
 
     # 根邮件直接展开，回复用 details 折叠
+    subj_esc = _esc(em.get("subject", "")[:80])
+    author_esc = _esc(author)
     if is_root:
-        return "\n".join(card) + "\n" + children_html
+        return (
+            f'<div class="email-node" id="{node_id}" data-author="{author_esc}" data-subject="{subj_esc}">'
+            + "\n".join(card) + "\n" + children_html
+            + '</div>'
+        )
     else:
-        subj_short = _esc(em.get("subject", "")[:80])
         n = node.total_count()
         count_badge = f' <span class="count-badge">{n}</span>' if n > 1 else ""
-        summary = f'{_esc(author)} — {subj_short}{count_badge}'
+        summary = f'{author_esc} — {subj_esc}{count_badge}'
         inner = "\n".join(card) + "\n" + children_html
         return (
+            f'<div class="email-node" id="{node_id}" data-author="{author_esc}" data-subject="{subj_esc}">'
             f'<details class="reply-thread">'
             f'<summary>{summary}</summary>'
             f'{inner}'
             f'</details>'
+            f'</div>'
         )
 
 
