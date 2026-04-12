@@ -1,6 +1,9 @@
 # 数据目录（邮件缓存和输出产物）
 data/
 
+# 翻译缓存
+data/.cache/
+
 # Python 缓存
 __pycache__/
 *.pyc
