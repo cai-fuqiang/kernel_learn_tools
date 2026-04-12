@@ -452,7 +452,7 @@ more flexible in that a task&#x27;s timeslice could change depending on how
 much competition it had on the same CPU, but with EEVDF the timeslice is
 fixed no matter what else is running, and growing or shrinking it
 depending on nr_running doesn&#x27;t honor whatever deadline was set for the
-task.</pre></div><div class="pg-cell pg-cn"><pre>I&#x27;m still thinking about how to fix it.  在 EEVDF 之前，tick 抢占更加灵活，因为任务的时间片可能会根据它在同一 CPU 上的竞争程度而变化，但是在 EEVDF 中，无论其他正在运行什么，时间片都是固定的，并且根据 nr_running 增加或缩小它并不遵守为任务设置的任何截止日期。</pre></div>
+task.</pre></div><div class="pg-cell pg-cn"><pre>我还在思考如何解决它。  在 EEVDF 之前，tick 抢占更加灵活，因为任务的时间片可能会根据它在同一 CPU 上的竞争程度而变化，但是在 EEVDF 中，无论其他正在运行什么，时间片都是固定的，并且根据 nr_running 增加或缩小它并不遵守为任务设置的任何截止日期。</pre></div>
 <div class="pg-cell"><pre>The schedstat patch for the base:</pre></div><div class="pg-cell pg-cn"><pre>基础的 schedstat 补丁：</pre></div>
 <div class="pg-left"><pre>diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index b3e25be58e2b..fb5a35aa07ec 100644</pre></div><div class="pg-spacer"></div>
@@ -3042,7 +3042,7 @@ problem.</pre></div><div class="pg-cell pg-cn"><pre>因为该树现在实际上�
 + *
 + * XXX could add max_slice to the augmented data to track this.
   */
-<span class="diff-comment-cn"> /* lag_i = S - s_i = w_i * (V - v_i) 然而，由于 V 是由所有实体的加权平均值近似的，因此可以通过对树进行添加/删除/重新加权来移动 V，并最终得到比我们开始时更大的滞后。 Limit this to either double the slice length with a minimum of TICK_NSEC since that is the timing granularity. EEVDF 为稳态系统给出以下限制： -r_max &lt; lag &lt; max(r_max, q) XXX 可以将 max_slice 添加到增强数据中以跟踪此情况。 */</span>
+<span class="diff-comment-cn"> /* lag_i = S - s_i = w_i * (V - v_i) 然而，由于 V 是由所有实体的加权平均值近似的，因此可以通过对树进行添加/删除/重新加权来移动 V，并最终得到比我们开始时更大的滞后。将此限制为最小为 TICK_NSEC 的切片长度的两倍，因为这是计时粒度。 EEVDF 为稳态系统给出以下限制： -r_max &lt; lag &lt; max(r_max, q) XXX 可以将 max_slice 添加到增强数据中以跟踪此情况。 */</span>
  void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
  {
 +	s64 lag, limit;
@@ -4991,7 +4991,7 @@ Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div><div class=
 [...7 行引用已省略...]
 &gt;   latency-nice  19: 3*1024 / 15    ~= 204.8 [ms]
 &gt;   latency-nice -20: 3*1024 / 88761 ~= 0.034 [ms]</pre></div><div class="pg-spacer"></div>
-<div class="pg-cell"><pre>I have reread the publication. I have question about</pre></div><div class="pg-cell pg-cn"><pre>I have reread the publication.我有疑问</pre></div>
+<div class="pg-cell"><pre>I have reread the publication. I have question about</pre></div><div class="pg-cell pg-cn"><pre>我重读了该出版物。我有疑问</pre></div>
 <div class="pg-cell"><pre>Theorem 1: The lag of any active client k in a steady system is
 bounded as follows,
     -rmax &lt; lagk (d) &lt; max(rmax ; q);</pre></div><div class="pg-cell pg-cn"><pre>定理 1：稳定系统中任何活动客户端 k 的滞后有界如下，
@@ -5060,7 +5060,7 @@ account, that&#x27;s where the max(rmax, q) term comes from.</pre></div><div cla
 invalidate the results. Note that if a task overshoots, it will build of
 significant negative lag (right side of the tree) and won&#x27;t be eligible
 for it&#x27;s next actual period. This &#x27;hole&#x27; in the schedule is then used to
-make up for the extra time it used previously.</pre></div><div class="pg-cell pg-cn"><pre>You&#x27;re right in that r_i &lt; q does not behave &#x27;right&#x27;, but it doesn&#x27;t invalidate the results.请注意，如果任务超调，它将产生显着的负滞后（树的右侧），并且不符合下一个实际周期的条件。 This &#x27;hole&#x27; in the schedule is then used to make up for the extra time it used previously.</pre></div>
+make up for the extra time it used previously.</pre></div><div class="pg-cell pg-cn"><pre>你是对的， r_i &lt; q 的行为并不“正确”，但它不会使结果无效。请注意，如果任务超调，它将产生显着的负滞后（树的右侧），并且不符合下一个实际周期的条件。然后，日程表中的这个“漏洞”将被用来弥补之前使用的额外时间。</pre></div>
 <div class="pg-cell"><pre>The much bigger problem with those bounds is this little caveat: &#x27;in a
 steady state&#x27;. They conveniently fail to consider the impact of
 leave/join operations on the whole thing -- and that&#x27;s a much more
@@ -5634,7 +5634,7 @@ index 0c31cda0712f..77e9440b8ab3 100644
 +	 * We ran into an eligible node which is itself the best.
 +	 * (Or nr_running == 0 and both are NULL)
 +	 */
-<span class="diff-comment-cn">+/* 我们遇到了一个符合条件的节点，它本身就是最好的。 (Or nr_running == 0 and both are NULL) */</span>
+<span class="diff-comment-cn">+/* 我们遇到了一个符合条件的节点，它本身就是最好的。 （或者 nr_running == 0 且均为 NULL） */</span>
 +	if (!best_left || (s64)(best_left-&gt;min_deadline - best-&gt;deadline) &gt; 0)
 +		return best;
 +

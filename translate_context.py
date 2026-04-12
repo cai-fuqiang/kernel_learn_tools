@@ -1730,6 +1730,7 @@ def main():
     parser.add_argument("--skip-low", action="store_true", help="跳过 LOW 优先级邮件的翻译")
     parser.add_argument("--dry-run", action="store_true", help="只解析不翻译")
     parser.add_argument("--proxy", default="", help="代理地址（如 127.0.0.1:7897），仅翻译请求使用")
+    parser.add_argument("--workers", type=int, default=1, help="并行翻译线程数（默认 1，建议 4-8）")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -1786,7 +1787,11 @@ def main():
         translated["__commit_message__"] = result.get("body_cn", "")
 
     total = len(emails)
-    done, skipped = 0, 0
+    workers = max(1, args.workers)
+
+    # 收集需要翻译的任务列表
+    tasks = []  # (index, email)
+    skipped = 0
     for i, em in enumerate(emails):
         tag = em.get("tag", "")
         body = em.get("body", "")
@@ -1796,11 +1801,41 @@ def main():
         if not should_translate(body):
             skipped += 1
             continue
-        print(f"  [{i+1}/{total}] {tag} {em.get('subject', '')[:50]}")
-        translated[f"email_{i}"] = translate_body(translator, body)
-        done += 1
-        if done % 5 == 0:
-            time.sleep(1)
+        tasks.append((i, em))
+
+    done = 0
+    if workers <= 1:
+        # 串行模式
+        for i, em in tasks:
+            tag = em.get("tag", "")
+            body = em.get("body", "")
+            done += 1
+            print(f"  [{i+1}/{total}] {tag} {em.get('subject', '')[:50]}")
+            translated[f"email_{i}"] = translate_body(translator, body)
+            if done % 5 == 0:
+                time.sleep(1)
+    else:
+        # 多线程并行模式
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+        print(f"  并行翻译: {workers} 线程")
+        lock = threading.Lock()
+
+        def _translate_one(idx_em):
+            i, em = idx_em
+            body = em.get("body", "")
+            result = translate_body(translator, body)
+            return i, em, result
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_translate_one, t): t for t in tasks}
+            for future in as_completed(futures):
+                i, em, result = future.result()
+                tag = em.get("tag", "")
+                translated[f"email_{i}"] = result
+                done += 1
+                with lock:
+                    print(f"  [{done}/{len(tasks)}] {tag} {em.get('subject', '')[:50]}")
 
     print(f"  翻译完成: {done} 封, 跳过: {skipped} 封")
 
@@ -1809,13 +1844,29 @@ def main():
     # 全局 diff
     if diff:
         translated["__diff__"] = _translate_diff_comments(translator, diff)
-    # 每封邮件中的 diff
-    diff_done = 0
+
+    # 每封邮件中的 diff（也可并行）
+    diff_tasks = []
     for i, em in enumerate(emails):
         _, em_diff = _split_body_and_diff(em.get("body", ""))
         if em_diff:
+            diff_tasks.append((i, em_diff))
+
+    if workers <= 1 or len(diff_tasks) < 2:
+        for i, em_diff in diff_tasks:
             translated[f"diff_{i}"] = _translate_diff_comments(translator, em_diff)
-            diff_done += 1
+    else:
+        def _translate_diff_one(idx_diff):
+            i, d = idx_diff
+            return i, _translate_diff_comments(translator, d)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_translate_diff_one, t) for t in diff_tasks]
+            for future in as_completed(futures):
+                i, result = future.result()
+                translated[f"diff_{i}"] = result
+
+    diff_done = len(diff_tasks)
     print(f"  diff 注释翻译完成: {diff_done + (1 if diff else 0)} 个")
 
     # 生成

@@ -10,6 +10,7 @@ Translator - 多后端翻译模块
 import logging
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple
 from urllib import request as urllib_request
 from urllib.error import URLError
@@ -101,6 +102,13 @@ class BaseTranslator:
 
         logger.info("翻译完成")
         return results
+
+    def translate_text(self, text: str) -> Tuple[str, str]:
+        """翻译纯文本，返回 (translated, error)。
+        Google/有道子类会覆盖此方法直接调用 _translate_text；
+        基类默认走 _call_with_retry。
+        """
+        return self._call_with_retry(text)
 
     def _call_with_retry(self, prompt: str) -> Tuple[str, str]:
         for attempt in range(1, self.max_retries + 1):
@@ -293,6 +301,10 @@ class GoogleTranslator(BaseTranslator):
             parts.append(translated)
         return "\n".join(parts), ""
 
+    def translate_text(self, text: str) -> Tuple[str, str]:
+        """覆盖基类：使用 Google 翻译的 _translate_text"""
+        return self._translate_text(text)
+
     def _call(self, text: str) -> Tuple[str, str]:
         from urllib.parse import urlencode
         params = urlencode({
@@ -386,6 +398,10 @@ class YoudaoTranslator(BaseTranslator):
                 return "", error
             parts.append(translated)
         return "\n".join(parts), ""
+
+    def translate_text(self, text: str) -> Tuple[str, str]:
+        """覆盖基类：使用有道翻译的 _translate_text"""
+        return self._translate_text(text)
 
     def _call(self, text: str) -> Tuple[str, str]:
         from urllib.parse import urlencode
