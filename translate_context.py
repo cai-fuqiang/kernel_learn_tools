@@ -1729,6 +1729,7 @@ def main():
     parser.add_argument("--model", default="", help="API 模型名（api 后端专用）")
     parser.add_argument("--skip-low", action="store_true", help="跳过 LOW 优先级邮件的翻译")
     parser.add_argument("--dry-run", action="store_true", help="只解析不翻译")
+    parser.add_argument("--proxy", default="", help="代理地址（如 127.0.0.1:7897），仅翻译请求使用")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -1763,16 +1764,19 @@ def main():
 
     # 翻译
     print(f"\n[2/3] 翻译邮件内容（后端: {args.backend}）...")
+    proxy = args.proxy or None
+    if proxy:
+        print(f"  使用代理: {proxy}")
     if args.backend == "api":
         if not args.api_key:
             print("错误: --backend api 需要 --api-key 参数")
             sys.exit(1)
         translator = create_translator(
             "api", api_key=args.api_key, provider=args.provider,
-            model=args.model or None,
+            model=args.model or None, proxy=proxy,
         )
     else:
-        translator = create_translator(args.backend)
+        translator = create_translator(args.backend, proxy=proxy)
 
     translated = {}
     cm = commit.get("commit_message", "")

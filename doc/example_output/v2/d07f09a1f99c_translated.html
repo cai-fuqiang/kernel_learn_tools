@@ -193,9 +193,41 @@ pre.checklist {
 pre.diff .diff-comment-cn {
   color: var(--green); font-style: italic; opacity: 0.85;
 }
+
+/* ── 聚焦视图 ── */
+.focus-btn {
+  background: transparent; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 6px;
+  margin-left: 4px; transition: all 0.15s;
+}
+.focus-btn:hover { background: var(--border); color: var(--accent); }
+.focus-bar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--surface); border-bottom: 2px solid var(--accent);
+  padding: 8px 16px; display: none; align-items: center; gap: 10px;
+  font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.focus-bar.active { display: flex; }
+.focus-bar .back-btn {
+  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+  padding: 4px 12px; font-size: 12px; cursor: pointer; font-weight: 600;
+  white-space: nowrap;
+}
+.focus-bar .back-btn:hover { opacity: 0.85; }
+.focus-bar .breadcrumb { color: var(--text-muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.focusing .page-content { display: none; }
+#focusContainer { display: none; }
+#focusContainer.active { display: block; }
+#focusContainer .replies { margin-left: 20px; padding-left: 16px; border-left: 2px solid var(--border); }
 </style>
 </head>
 <body>
+<div class="focus-bar" id="focusBar">
+  <button class="back-btn" onclick="unfocusEmail()">← 返回全部</button>
+  <span class="breadcrumb" id="focusBreadcrumb"></span>
+</div>
+<div id="focusContainer"></div>
+<div class="page-content">
 <h1>sched/fair: Propagate enqueue flags into place_entity()</h1>
 
 <h2>Commit 信息</h2>
@@ -285,12 +317,13 @@ index 7ff9965570e6..db5853761b1f 100644
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">17</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-36" data-author="Peter Zijlstra" data-subject="[PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Wed, 31 May 2023 13:58:39 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-36')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Hi!</pre></div><div class="pg-cell pg-cn"><pre>你好！</pre></div>
@@ -326,12 +359,13 @@ but is untested.</pre></div><div class="pg-cell pg-cn"><pre>最后一个补丁�
 [2] https://lkml.kernel.org/r/20230420150537.GC4253%40hirez.programming.kicks-ass.net</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">16</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-47" data-author="Daniel Jordan" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">16</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">D</span>
     <span class="author">Daniel Jordan</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Wed, 23 Aug 2023 20:52:26 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-47')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hi Peter,</pre></div><div class="pg-spacer"></div>
@@ -418,7 +452,7 @@ more flexible in that a task&#x27;s timeslice could change depending on how
 much competition it had on the same CPU, but with EEVDF the timeslice is
 fixed no matter what else is running, and growing or shrinking it
 depending on nr_running doesn&#x27;t honor whatever deadline was set for the
-task.</pre></div><div class="pg-cell pg-cn"><pre>我还在思考如何解决它。  在 EEVDF 之前，tick 抢占更加灵活，因为任务的时间片可能会根据它在同一 CPU 上的竞争程度而变化，但是在 EEVDF 中，无论其他正在运行什么，时间片都是固定的，并且根据 nr_running 增加或缩小它并不遵守为任务设置的任何截止日期。</pre></div>
+task.</pre></div><div class="pg-cell pg-cn"><pre>I&#x27;m still thinking about how to fix it.  在 EEVDF 之前，tick 抢占更加灵活，因为任务的时间片可能会根据它在同一 CPU 上的竞争程度而变化，但是在 EEVDF 中，无论其他正在运行什么，时间片都是固定的，并且根据 nr_running 增加或缩小它并不遵守为任务设置的任何截止日期。</pre></div>
 <div class="pg-cell"><pre>The schedstat patch for the base:</pre></div><div class="pg-cell pg-cn"><pre>基础的 schedstat 补丁：</pre></div>
 <div class="pg-left"><pre>diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
 index b3e25be58e2b..fb5a35aa07ec 100644</pre></div><div class="pg-spacer"></div>
@@ -568,12 +602,13 @@ index 857f837f52cb..2a8bd742507d 100644
 [0] https://lore.kernel.org/all/20230531115839.089944915@infradead.org/</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">15</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-48" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">15</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Wed, 6 Sep 2023 15:13:56 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-48')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Wed, Aug 23, 2023 at 08:52:26PM -0400, Daniel Jordan wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 8 月 23 日星期三晚上 08:52:26 -0400，丹尼尔·乔丹 (Daniel Jordan) 写道：</pre></div>
@@ -589,12 +624,13 @@ I&#x27;ll try and refresh those few patches this week for consideration.</pre></
 <div class="pg-cell"><pre>In the meantime I think you found the right knob to twiddle.</pre></div><div class="pg-cell pg-cn"><pre>与此同时，我认为你已经找到了合适的旋钮。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">14</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-49" data-author="Youssef Esmat" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">14</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">Y</span>
     <span class="author">Youssef Esmat</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 29 Sep 2023 11:54:25 -0500</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-49')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>[...9 行引用已省略...]
@@ -665,12 +701,13 @@ improved the input latency significantly.</pre></div><div class="pg-cell pg-cn">
 <div class="pg-cell"><pre>I would love to hear your thoughts. Thanks!</pre></div><div class="pg-cell pg-cn"><pre>我很想听听你的想法。谢谢！</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-51" data-author="Youssef Esmat" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">Y</span>
     <span class="author">Youssef Esmat</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Mon, 2 Oct 2023 10:55:07 -0500</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-51')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Sep 29, 2023 at 11:54 AM Youssef Esmat
@@ -693,13 +730,14 @@ EEVDF, *no*eligib, 6ms slice:    104ms</pre></div><div class="pg-spacer"></div>
 <div class="pg-cell"><pre>It does seem like Benjamin&#x27;s fix did have an improvement.</pre></div><div class="pg-cell pg-cn"><pre>看来本杰明的修复确实有所改进。</pre></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">12</span></summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-52" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">12</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Mon, 2 Oct 2023 20:41:36 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-52')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Sep 29, 2023 at 11:54:25AM -0500, Youssef Esmat wrote:
@@ -717,12 +755,13 @@ transposed (in the static state scenario).</pre></div><div class="pg-cell pg-cn"
 <div class="pg-cell"><pre>Let me ponder this a little bit more.</pre></div><div class="pg-cell pg-cn"><pre>让我再思考一下。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">11</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-53" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">11</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 5 Oct 2023 14:05:57 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-53')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Mon, Oct 02, 2023 at 08:41:36PM +0200, Peter Zijlstra wrote:</pre></div><div class="pg-cell pg-cn"><pre>Peter Zijlstra 于 2023 年 10 月 2 日星期一晚上 08:41:36 +0200 写道：</pre></div>
@@ -880,12 +919,13 @@ not opposed to having a sched_feat for this, but I would not want to
 default to EVDF.</pre></div><div class="pg-cell pg-cn"><pre>也就是说；我确实认为没有资格检查会有帮助。所以我不反对为此设置 sched_feat，但我不想默认为 EVDF。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">5</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-59" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">5</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Sun, 8 Oct 2023 00:04:00 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-59')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Thu, Oct 05, 2023 at 02:05:57PM +0200, Peter Zijlstra wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 10 月 5 日星期四下午 02:05:57 +0200，Peter Zijlstra 写道：</pre></div>
@@ -923,12 +963,13 @@ the low end -- so that&#x27;s a complete write off.</pre></div><div class="pg-ce
 much not a nice option either :-(</pre></div><div class="pg-cell pg-cn"><pre>到目前为止，最明智的选择是 PLACE_SLEEPER ——但这也不是一个好的选择:-(</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-60" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Mon, 9 Oct 2023 16:41:25 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-60')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Sun, Oct 08, 2023 at 12:04:00AM +0200, Peter Zijlstra wrote:
@@ -940,13 +981,14 @@ much not a nice option either :-(</pre></div><div class="pg-cell pg-cn"><pre>到
 DoS window.</pre></div><div class="pg-cell pg-cn"><pre>这可以很容易地解释为我们在 0 延迟附近插入任务，因此如果我们将执行延迟到这一点之后，我们就会创建一个有效的 DoS 窗口。</pre></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">3</span></summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-61" data-author="Youssef Esmat" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">Y</span>
     <span class="author">Youssef Esmat</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Mon, 9 Oct 2023 19:51:03 -0500</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-61')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Sat, Oct 7, 2023 at 5:04 PM Peter Zijlstra &lt;peterz@infradead.org&gt; wrote:
@@ -1006,12 +1048,13 @@ still trying our other workloads out.</pre></div><div class="pg-cell pg-cn"><pre
 <div class="pg-left"><pre>[...11 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-72" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Mon, 16 Oct 2023 18:50:19 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-72')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Sorry, I seem to have forgotten to reply to this part...</pre></div><div class="pg-cell pg-cn"><pre>抱歉，我好像忘记回复这部分了……</pre></div>
@@ -1033,13 +1076,14 @@ critical path, you can indeed set your slice to that. This should be
 readily available from trace data.</pre></div><div class="pg-cell pg-cn"><pre>无论如何，一旦您知道关键路径上最长激活的 95% 长度，您确实可以将切片设置为该长度。这应该可以从跟踪数据中轻松获得。</pre></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-62" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Tue, 10 Oct 2023 10:01:55 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-62')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Mon, Oct 09, 2023 at 07:51:03PM -0500, Youssef Esmat wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 10 月 9 日星期一 07:51:03PM -0500，Youssef Esmat 写道：</pre></div>
@@ -1051,13 +1095,14 @@ set, the big slice is 10 * normal, the middle slice is normal (equal to
 hackbench) and the short slice is normal / 10.</pre></div><div class="pg-cell pg-cn"><pre>这是 hackbench 与 cyclotest 的对比，其中 cyclotest 获取自定义切片集，大切片为 10 * 正常，中间切片为正常（等于 hackbench），短切片为正常 / 10。</pre></div>
 </div>
 </div>
-</details></div></details></div></details>
-<details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">3</span></summary><div class="email-card">
+</details></div></div></details></div></div></details></div>
+<div class="email-node" id="email-node-56" data-author="Youssef Esmat" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">Y</span>
     <span class="author">Youssef Esmat</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 5 Oct 2023 13:23:14 -0500</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-56')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Thu, Oct 5, 2023 at 7:06 AM Peter Zijlstra &lt;peterz@infradead.org&gt; wrote:
@@ -1076,12 +1121,13 @@ patch[1] we should not run into this scenario, correct?</pre></div><div class="p
 <div class="pg-left"><pre>[...32 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-57" data-author="Youssef Esmat" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Youssef Esmat — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">Y</span>
     <span class="author">Youssef Esmat</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 5 Oct 2023 19:36:26 -0500</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-57')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Thu, Oct 5, 2023 at 1:23 PM Youssef Esmat &lt;youssefesmat@chromium.org&gt; wrote:
@@ -1097,13 +1143,14 @@ for at least 11 time units&quot;.</pre></div><div class="pg-cell pg-cn"><pre>抱
 <div class="pg-left"><pre>[...33 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-63" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Tue, 10 Oct 2023 10:08:40 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-63')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Thu, Oct 05, 2023 at 01:23:14PM -0500, Youssef Esmat wrote:
@@ -1122,13 +1169,14 @@ placed around 0-lag.</pre></div><div class="pg-cell pg-cn"><pre>正如我昨天�
 treatment, but still, it&#x27;s there.</pre></div><div class="pg-cell pg-cn"><pre>现在，如果非常轻松的任务受到可怕的对待，可能没有人会太在意，但它仍然存在。</pre></div>
 </div>
 </div>
-</details></div></details>
-<details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">2</span></summary><div class="email-card">
+</details></div></div></details></div>
+<div class="email-node" id="email-node-54" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 5 Oct 2023 16:14:08 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-54')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Thu, Oct 05, 2023 at 02:05:57PM +0200, Peter Zijlstra wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 10 月 5 日星期四下午 02:05:57 +0200，Peter Zijlstra 写道：</pre></div>
@@ -1192,12 +1240,13 @@ it might eat your pet and set your granny on fire.</pre></div><div class="pg-cel
  			break;</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-55" data-author="Peter Zijlstra" data-subject="Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 00/15] sched: EEVDF and latency-nice and/or slice-attr</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 5 Oct 2023 16:42:57 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-55')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Thu, Oct 05, 2023 at 04:14:08PM +0200, Peter Zijlstra wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 10 月 5 日星期四下午 04:14:08 +0200，Peter Zijlstra 写道：</pre></div>
@@ -1210,16 +1259,17 @@ it might eat your pet and set your granny on fire.</pre></div><div class="pg-cel
 <div class="pg-left"><pre>[...25 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details></div></details></div></details></div></details></div></details></div></details></div>
+</details></div></div></details></div></div></details></div></div></details></div></div></details></div></div></details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">10</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-73" data-author="Peter Zijlstra" data-subject="[PATCH 01/15] sched/fair: Add avg_vruntime"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:40 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-73')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>In order to move to an eligibility based scheduling policy it is
@@ -1499,12 +1549,13 @@ ideal scheduler would of course never do.</pre></div><div class="pg-cell pg-cn">
  #ifdef C</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">3</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-0" data-author="Vincent Guittot" data-subject="Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">V</span>
     <span class="author">Vincent Guittot</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 2 Jun 2023 15:51:53 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-0')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, 31 May 2023 at 14:47, Peter Zijlstra &lt;peterz@infradead.org&gt; wrote:
@@ -1517,12 +1568,13 @@ isn&#x27;t cfs_rq-&gt;avg_load similar to scale_load_down(cfs_rq-&gt;load.weight
 [...125 行引用已省略...]</pre></div><div class="pg-spacer"></div>
   </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-1" data-author="Peter Zijlstra" data-subject="Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 2 Jun 2023 16:27:39 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-1')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Jun 02, 2023 at 03:51:53PM +0200, Vincent Guittot wrote:
@@ -1539,12 +1591,13 @@ isn&#x27;t cfs_rq-&gt;avg_load similar to scale_load_down(cfs_rq-&gt;load.weight
 在添加之前向下，特别是对于多个低权重条目，这会产生显着差异。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 01/15] sched/fair: Add avg_vruntime</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-2" data-author="Vincent Guittot" data-subject="Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 01/15] sched/fair: Add avg_vruntime</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">V</span>
     <span class="author">Vincent Guittot</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Mon, 5 Jun 2023 09:18:05 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-2')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, 2 Jun 2023 at 16:27, Peter Zijlstra &lt;peterz@infradead.org&gt; wrote:
@@ -1555,13 +1608,14 @@ isn&#x27;t cfs_rq-&gt;avg_load similar to scale_load_down(cfs_rq-&gt;load.weight
 <div class="pg-left"><pre>&gt;</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details></div></details>
-<details class="reply-thread"><summary>Abel Wu — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">6</span></summary><div class="email-card">
+</details></div></div></details></div></div></details></div>
+<div class="email-node" id="email-node-11" data-author="Abel Wu" data-subject="Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Abel Wu — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">6</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 12:15:28 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-11')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 5/31/23 7:58 PM, Peter Zijlstra wrote:
@@ -1580,12 +1634,13 @@ instead of &#x27;avg_load&#x27;.</pre></div><div class="pg-cell pg-cn"><pre>恕�
 	Abel</pre></div><div class="pg-cell pg-cn"><pre>谢谢，最好的，阿贝尔</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">5</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-12" data-author="Peter Zijlstra" data-subject="Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">5</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 09:30:01 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-12')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, Oct 11, 2023 at 12:15:28PM +0800, Abel Wu wrote:
@@ -1605,12 +1660,13 @@ math, I don&#x27;t think it makes sense to change this name. The purpose is
 to compute the weighted average of things, lets keep the current name.</pre></div><div class="pg-cell pg-cn"><pre>鉴于我们减去 v0 (min_vruntime) 并使用定点数学玩游戏，我认为更改此名称没有意义。目的是计算事物的加权平均值，让我们保留当前名称。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 01/15] sched/fair: Add avg_vruntime</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-18" data-author="Peter Zijlstra" data-subject="Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 01/15] sched/fair: Add avg_vruntime</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 15:08:51 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-18')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, Oct 11, 2023 at 09:30:01AM +0200, Peter Zijlstra wrote:
@@ -1620,13 +1676,14 @@ to compute the weighted average of things, lets keep the current name.</pre></di
 <div class="pg-cell"><pre>Yes, it should be. Clearly I was delusional this morning.</pre></div><div class="pg-cell pg-cn"><pre>是的，应该如此。显然，今天早上我是产生了妄想。</pre></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">3</span></summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-13" data-author="Abel Wu" data-subject="Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 16:30:26 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-13')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 10/11/23 3:30 PM, Peter Zijlstra Wrote:
@@ -1637,12 +1694,13 @@ to compute the weighted average of things, lets keep the current name.</pre></di
 measured in real time (V*w_i).</pre></div><div class="pg-cell pg-cn"><pre>IIUC 它的 V 以 dt/W 进行，并且对于所有任务都是相同的，而不是实时测量的 S (V*w_i)。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-14" data-author="Peter Zijlstra" data-subject="Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 11:45:39 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-14')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, Oct 11, 2023 at 04:30:26PM +0800, Abel Wu wrote:
@@ -1652,17 +1710,18 @@ measured in real time (V*w_i).</pre></div><div class="pg-cell pg-cn"><pre>IIUC �
 <div class="pg-cell"><pre>Clearly I should wake up before replying ;-)</pre></div><div class="pg-cell pg-cn"><pre>显然我应该在回复之前醒来;-)</pre></div>
 <div class="pg-cell"><pre>  V = S/W, so dV = dt/W and dS = dt</pre></div><div class="pg-cell pg-cn"><pre>V = S/W，因此 dV = dt/W 且 dS = dt</pre></div>
 <div class="pg-cell"><pre>Anyway, the point is that both V and S are the same across all tasks,
-all tasks execute in parallel with infinitely small time increments.</pre></div><div class="pg-cell pg-cn"><pre>无论如何，重点是 V 和 S 在所有任务中都是相同的，所有任务以无限小的时间增量并行执行。</pre></div>
+all tasks execute in parallel with infinitely small time increments.</pre></div><div class="pg-cell pg-cn"><pre>无论如何，关键是 V 和 S 在所有任务中都是相同的，所有任务以无限小的时间增量并行执行。</pre></div>
 <div class="pg-cell"><pre>In reality this can&#x27;t work ofc, so we get the approximations v_i and s_i
 and lag is the deviation from the ideal.</pre></div><div class="pg-cell pg-cn"><pre>实际上，这是行不通的，所以我们得到近似值 v_i 和 s_i，而 lag 是与理想值的偏差。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-15" data-author="Peter Zijlstra" data-subject="Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 01/15] sched/fair: Add avg_vruntime</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 12:05:26 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-15')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, Oct 11, 2023 at 11:45:39AM +0200, Peter Zijlstra wrote:
@@ -1674,16 +1733,17 @@ and lag is the deviation from the ideal.</pre></div><div class="pg-cell pg-cn"><
 after.</pre></div><div class="pg-cell pg-cn"><pre>我要去办一些事，但之后我会尝试更连贯地回复。</pre></div>
 </div>
 </div>
-</details></div></details></div></details></div></details></div></details></div>
+</details></div></div></details></div></div></details></div></div></details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 02/15] sched/fair: Remove START_DEBIT <span class="count-badge">1</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-74" data-author="Peter Zijlstra" data-subject="[PATCH 02/15] sched/fair: Remove START_DEBIT"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:41 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-74')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>With the introduction of avg_vruntime() there is no need to use worse
@@ -1755,16 +1815,17 @@ new tasks.</pre></div><div class="pg-cell pg-cn"><pre>引入 avg_vruntime() 后�
   * touched, increases cache locality.</pre>
   </details>
 </div>
-
+</div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">19</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-75" data-author="Peter Zijlstra" data-subject="[PATCH 03/15] sched/fair: Add lag based placement"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:42 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-75')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>With the introduction of avg_vruntime, it is possible to approximate
@@ -1869,7 +1930,7 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><d
 +	 *
 +	 * EEVDF: placement strategy #1 / #2
 +	 */
-<span class="diff-comment-cn">+/* 由于 V 是如何构建为实体的加权平均值的，添加具有正滞后的任务或删除具有负滞后的任务将使“时间”向后移动，这可能会影响其他任务的滞后。 EEVDF：布局策略#1/#2 */</span>
+<span class="diff-comment-cn">+/* 由于 V 是如何构建为实体的加权平均值的，添加具有正滞后的任务或删除具有负滞后的任务将使“时间”向后移动，这可能会影响其他任务的滞后。 EEVDF：放置策略#1/#2 */</span>
 +	if (sched_feat(PLACE_LAG) &amp;&amp; cfs_rq-&gt;nr_running &gt; 1) {
 +		struct sched_entity *curr = cfs_rq-&gt;curr;
 +		unsigned long load;
@@ -2051,12 +2112,13 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><d
   * touched, increases cache locality.</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">8</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-29" data-author="Breno Leitao" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">8</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">B</span>
     <span class="author">Breno Leitao</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 7 Feb 2025 02:07:18 -0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-29')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hello Peter,</pre></div><div class="pg-spacer"></div>
@@ -2104,12 +2166,13 @@ last week.</pre></div><div class="pg-cell pg-cn"><pre>不管怎样，我没有�
 --breno</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">7</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-99" data-author="Peter Zijlstra" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">7</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Fri, 7 Feb 2025 12:11:41 +0100</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-99')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Feb 07, 2025 at 02:07:18AM -0800, Breno Leitao wrote:
@@ -2216,12 +2279,13 @@ Link: https://lkml.kernel.org/r/20250128143949.GD7145@noisy.programming.kicks-as
  		 * The entity&#x27;s vruntime has been adjusted, so let&#x27;s check</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-35" data-author="Breno Leitao" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">B</span>
     <span class="author">Breno Leitao</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 14 Feb 2025 09:21:40 -0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-35')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Feb 07, 2025 at 12:11:41PM +0100, Peter Zijlstra wrote:
@@ -2234,13 +2298,14 @@ Link: https://lkml.kernel.org/r/20250128143949.GD7145@noisy.programming.kicks-as
 --breno</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">3</span></summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-30" data-author="Breno Leitao" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">B</span>
     <span class="author">Breno Leitao</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 7 Feb 2025 04:25:02 -0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-30')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hello Peter,</pre></div><div class="pg-spacer"></div>
@@ -2254,12 +2319,13 @@ start rolling it to those 1k hosts I have been playing with.</pre></div><div cla
 submission for stable?</pre></div><div class="pg-cell pg-cn"><pre>我还没有看到这个稳定版本的补丁。是否会排队等待下一次提交稳定版？</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-31" data-author="Peter Zijlstra" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 7 Feb 2025 13:30:20 +0100</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-31')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Fri, Feb 07, 2025 at 04:25:02AM -0800, Breno Leitao wrote:</pre></div><div class="pg-cell pg-cn"><pre>2025 年 2 月 7 日星期五上午 04:25:02 -0800，Breno Leitao 写道：</pre></div>
@@ -2270,12 +2336,13 @@ getting in between. I&#x27;ll try and get it pushed into tip/sched/urgent
 this seekend somewhere -- but it is unlikely to make -rc2 at this pace.</pre></div><div class="pg-cell pg-cn"><pre>还没有排队，就到了。我本想这周就这么做，但中间总是有“事情”发生。我会尝试将其推入tip/sched/urgent 这个seekend 的某个地方——但不太可能以这种速度制作-rc2。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-32" data-author="Breno Leitao" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">B</span>
     <span class="author">Breno Leitao</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 7 Feb 2025 05:22:01 -0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-32')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Feb 07, 2025 at 01:30:20PM +0100, Peter Zijlstra wrote:
@@ -2291,13 +2358,14 @@ production tree.</pre></div><div class="pg-cell pg-cn"><pre>那很好。  我只
 --breno</pre></div>
 </div>
 </div>
-</details></div></details></div></details>
-<details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
+</details></div></div></details></div></div></details></div>
+<div class="email-node" id="email-node-33" data-author="Breno Leitao" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Breno Leitao — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">B</span>
     <span class="author">Breno Leitao</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 7 Feb 2025 05:38:20 -0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-33')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Feb 07, 2025 at 12:11:41PM +0100, Peter Zijlstra wrote:
@@ -2312,12 +2380,13 @@ don&#x27;t exist in 6.13, it was added/renamed later by 736c55a02c477a
 <div class="pg-cell"><pre>Thanks</pre></div><div class="pg-cell pg-cn"><pre>谢谢</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-34" data-author="Vincent Guittot" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">V</span>
     <span class="author">Vincent Guittot</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 7 Feb 2025 14:39:28 +0100</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-34')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, 7 Feb 2025 at 14:38, Breno Leitao &lt;leitao@debian.org&gt; wrote:
@@ -2330,13 +2399,14 @@ it&#x27; still nr_running in v6.13</pre></div><div class="pg-cell pg-cn"><pre>�
 &gt; Thanks</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details></div></details></div></details>
-<details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">5</span></summary><div class="email-card">
+</details></div></div></details></div></div></details></div></div></details></div>
+<div class="email-node" id="email-node-68" data-author="Benjamin Segall" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">5</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">B</span>
     <span class="author">Benjamin Segall</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 12 Oct 2023 12:15:12 -0700</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-68')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>message of &quot;Wed, 31 May 2023 13:58:42 +0200&quot;)&gt;</pre></div><div class="pg-cell pg-cn"><pre>Peter Zijlstra &lt;peterz@infradead.org&gt; writes:</pre></div>
@@ -2358,12 +2428,13 @@ seeing more &quot;don&#x27;t go to sleep, just spin, the latency numbers are so
 much better&quot; nonsense.</pre></div><div class="pg-cell pg-cn"><pre>理论上，#2 可能会在被抢占之前被微睡眠滥用，但这并不是任务可以真正预测的，不像看到更多“不要去睡觉，只是旋转，延迟数字要好得多”的废话。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">3</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-69" data-author="Peter Zijlstra" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 13 Oct 2023 00:34:28 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-69')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Thu, Oct 12, 2023 at 12:15:12PM -0700, Benjamin Segall wrote:
@@ -2378,12 +2449,13 @@ depresses a bunch of other stuff. Never a free lunch etc.</pre></div><div class=
 <div class="pg-cell"><pre>It is so far the least horrible of the things I&#x27;ve tried.</pre></div><div class="pg-cell pg-cn"><pre>这是迄今为止我尝试过的最不可怕的事情。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-96" data-author="Peter Zijlstra" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Fri, 13 Oct 2023 18:35:24 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-96')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Fri, Oct 13, 2023 at 12:34:28AM +0200, Peter Zijlstra wrote:</pre></div><div class="pg-cell pg-cn"><pre>Peter Zijlstra 于 2023 年 10 月 13 日星期五上午 12:34:28 +0200 写道：</pre></div>
@@ -2582,12 +2654,13 @@ index 245df0c6d344..35d297e1d91b 100644
  }</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Mike Galbraith — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-71" data-author="Mike Galbraith" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Mike Galbraith — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">M</span>
     <span class="author">Mike Galbraith</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Sat, 14 Oct 2023 10:08:00 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-71')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, 2023-10-13 at 18:35 +0200, Peter Zijlstra wrote:
@@ -2609,13 +2682,14 @@ book.  Here&#x27;s hoping canned benchmark bots don&#x27;t grumble.</pre></div><
 <div class="pg-left"><pre>	-Mike</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details></div></details>
-<details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
+</details></div></div></details></div></div></details></div>
+<div class="email-node" id="email-node-70" data-author="Peter Zijlstra" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 13 Oct 2023 16:34:14 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-70')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Thu, Oct 12, 2023 at 12:15:12PM -0700, Benjamin Segall wrote:
@@ -2667,13 +2741,14 @@ tasks (eg. conforming to the periodic task model -- not waking up before
 its time and all that).</pre></div><div class="pg-cell pg-cn"><pre>放置策略 #1 仅当您执行良好的任务时才真正有效（例如，符合周期性任务模型 - 不在时间之前醒来等等）。</pre></div>
 </div>
 </div>
-</details></div></details>
-<details class="reply-thread"><summary>Abel Wu — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">5</span></summary><div class="email-card">
+</details></div></div></details></div>
+<div class="email-node" id="email-node-17" data-author="Abel Wu" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Abel Wu — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">5</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 20:00:22 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-17')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 5/31/23 7:58 PM, Peter Zijlstra Wrote:
@@ -2684,12 +2759,13 @@ its time and all that).</pre></div><div class="pg-cell pg-cn"><pre>放置策略 
 <div class="pg-left"><pre>[...29 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">4</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-20" data-author="Peter Zijlstra" data-subject="Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">4</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 15:24:56 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-20')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, Oct 11, 2023 at 08:00:22PM +0800, Abel Wu wrote:
@@ -2706,12 +2782,13 @@ relation to express vl_i in vl&#x27;_i:</pre></div><div class="pg-cell pg-cn"><p
 sense, irrespective of sign.</pre></div><div class="pg-cell pg-cn"><pre>因此，这意味着 vl&#x27;_i 在绝对意义上必须小于 vl_i，无论符号如何。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">3</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-22" data-author="Abel Wu" data-subject="Re: Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Thu, 12 Oct 2023 15:04:47 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-22')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 10/11/23 9:24 PM, Peter Zijlstra Wrote:
@@ -2733,12 +2810,13 @@ I wonder if we should simply do offsetting rather than scaling.</pre></div><div 
 &gt; sense, irrespective of sign.</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-26" data-author="Peter Zijlstra" data-subject="Re: Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 03/15] sched/fair: Add lag based placement <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 13 Oct 2023 09:37:39 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-26')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Thu, Oct 12, 2023 at 03:04:47PM +0800, Abel Wu wrote:
@@ -2751,12 +2829,13 @@ I wonder if we should simply do offsetting rather than scaling.</pre></div><div 
 numerically less stable.</pre></div><div class="pg-cell pg-cn"><pre>我不明白这一点，结果是相同的，并且计算增量在数值上似乎不太稳定。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-27" data-author="Abel Wu" data-subject="Re: Re: [PATCH 03/15] sched/fair: Add lag based placement"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 03/15] sched/fair: Add lag based placement</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 13 Oct 2023 16:14:55 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-27')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 10/13/23 3:37 PM, Peter Zijlstra Wrote:
@@ -2766,16 +2845,17 @@ numerically less stable.</pre></div><div class="pg-cell pg-cn"><pre>我不明白
 <div class="pg-cell"><pre>Right. I was not myself then, please forget what I said..</pre></div><div class="pg-cell pg-cn"><pre>正确的。那时我已经不是我自己了，请忘记我说的话吧。</pre></div>
 </div>
 </div>
-</details></div></details></div></details></div></details></div></details></div>
+</details></div></div></details></div></div></details></div></div></details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 04/15] rbtree: Add rb_add_augmented_cached() helper <span class="count-badge">1</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-76" data-author="Peter Zijlstra" data-subject="[PATCH 04/15] rbtree: Add rb_add_augmented_cached() helper"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:43 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-76')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>While slightly sub-optimal, updating the augmented data while going
@@ -2826,16 +2906,17 @@ to add a node to an augmented cached tree.</pre></div><div class="pg-cell pg-cn"
   *</pre>
   </details>
 </div>
-
+</div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 05/15] sched/fair: Implement an EEVDF like policy <span class="count-badge">6</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-77" data-author="Peter Zijlstra" data-subject="[PATCH 05/15] sched/fair: Implement an EEVDF like policy"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:44 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-77')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Where CFS is currently a WFQ based scheduler with only a single knob,
@@ -2961,7 +3042,7 @@ problem.</pre></div><div class="pg-cell pg-cn"><pre>因为该树现在实际上�
 + *
 + * XXX could add max_slice to the augmented data to track this.
   */
-<span class="diff-comment-cn"> /* lag_i = S - s_i = w_i * (V - v_i) 然而，由于 V 是由所有实体的加权平均值近似的，因此可以通过对树进行添加/删除/重新加权来移动 V，并最终得到比我们开始时更大的滞后。将此限制为最小为 TICK_NSEC 的切片长度的两倍，因为这是计时粒度。 EEVDF 为稳态系统给出以下限制： -r_max &lt; lag &lt; max(r_max, q) XXX 可以将 max_slice 添加到增强数据中以跟踪此情况。 */</span>
+<span class="diff-comment-cn"> /* lag_i = S - s_i = w_i * (V - v_i) 然而，由于 V 是由所有实体的加权平均值近似的，因此可以通过对树进行添加/删除/重新加权来移动 V，并最终得到比我们开始时更大的滞后。 Limit this to either double the slice length with a minimum of TICK_NSEC since that is the timing granularity. EEVDF 为稳态系统给出以下限制： -r_max &lt; lag &lt; max(r_max, q) XXX 可以将 max_slice 添加到增强数据中以跟踪此情况。 */</span>
  void update_entity_lag(struct cfs_rq *cfs_rq, struct sched_entity *se)
  {
 +	s64 lag, limit;
@@ -3145,12 +3226,13 @@ problem.</pre></div><div class="pg-cell pg-cn"><pre>因为该树现在实际上�
 +			node = n</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy <span class="count-badge">5</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-50" data-author="Benjamin Segall" data-subject="Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy <span class="count-badge">5</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">B</span>
     <span class="author">Benjamin Segall</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 29 Sep 2023 14:40:31 -0700</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-50')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>message of &quot;Wed, 31 May 2023 13:58:44 +0200&quot;)&gt;</pre></div><div class="pg-cell pg-cn"><pre>Peter Zijlstra &lt;peterz@infradead.org&gt; writes:</pre></div>
@@ -3186,12 +3268,13 @@ used to test my simple case into a something of a stress tester and try
 some implementations.</pre></div><div class="pg-cell pg-cn"><pre>我认为这个过程可以与我们的初始下降相结合，通过每次采取右分支时跟踪最佳的 rb_left-&gt;min_deadline 来获得更好的缓存行为。我们仍然需要查看最多约 2 倍的节点，但我认为这是可以避免的？我将把我用来测试简单案例的快速技巧扩展为压力测试器，并尝试一些实现。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-7" data-author="Peter Zijlstra" data-subject="Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Mon, 2 Oct 2023 19:39:04 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-7')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Fri, Sep 29, 2023 at 02:40:31PM -0700, Benjamin Segall wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 9 月 29 日星期五下午 02:40:31 -0700，Benjamin Segall 写道：</pre></div>
@@ -3205,13 +3288,14 @@ patches, but alas.</pre></div><div class="pg-cell pg-cn"><pre>你说得很对—
 Let me go stare at your patch in more detail.</pre></div><div class="pg-cell pg-cn"><pre>重新阅读这篇论文，你的建议与他们的建议相当接近。让我更详细地看看你的补丁。</pre></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy <span class="count-badge">3</span></summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-64" data-author="Abel Wu" data-subject="Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Wed, 11 Oct 2023 12:14:30 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-64')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>\u5728 9/30/23 5:40 AM, Benjamin Segall Wrote:
@@ -3233,12 +3317,13 @@ there are cases worthy of breaking the &#x27;eligible&#x27; rule.</pre></div><di
 <div class="pg-left"><pre>[...18 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-65" data-author="Peter Zijlstra" data-subject="Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy"><details class="reply-thread"><summary>Peter Zijlstra — Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Wed, 11 Oct 2023 09:33:17 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-65')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Wed, Oct 11, 2023 at 12:14:30PM +0800, Abel Wu wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 10 月 11 日星期三下午 12:14:30 +0800，Abel Wu 写道：</pre></div>
@@ -3252,12 +3337,13 @@ horrific interference because you end up placing new tasks around the
 0-lag point.</pre></div><div class="pg-cell pg-cn"><pre>请参阅与 Youssef 的讨论，如果我们削弱合格规则，您会受到可怕的干扰，因为您最终会在 0 滞后点附近放置新任务。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-16" data-author="Abel Wu" data-subject="Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH 05/15] sched/fair: Implement an EEVDF like policy</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 19:49:52 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-16')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 10/11/23 3:33 PM, Peter Zijlstra Wrote:
@@ -3277,16 +3363,17 @@ for providing the info!</pre></div><div class="pg-cell pg-cn"><pre>无论如何�
 	Abel</pre></div><div class="pg-cell pg-cn"><pre>最好的，阿贝尔</pre></div>
 </div>
 </div>
-</details></div></details></div></details></div></details></div>
+</details></div></div></details></div></div></details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 06/15] sched: Commit to lag based placement <span class="count-badge">1</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-78" data-author="Peter Zijlstra" data-subject="[PATCH 06/15] sched: Commit to lag based placement"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:45 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-78')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Removes the FAIR_SLEEPERS code in favour of the new LAG based
@@ -3411,16 +3498,17 @@ split (as CFS will also do if the sleep period exceeds &#x27;thresh&#x27;).</pre
 <span class="diff-comment-cn"> /* 使用 avg_vruntime，做正确的事情并在睡眠+唤醒周期中保持延迟。 EEVDF 放置策略#1、#2（如果禁用）。 */</span></pre>
   </details>
 </div>
-
+</div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue <span class="count-badge">3</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-79" data-author="Peter Zijlstra" data-subject="[PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue placement"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:46 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-79')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Using lag is both more correct and simpler when moving between
@@ -3505,7 +3593,7 @@ have the real thing; use it.</pre></div><div class="pg-cell pg-cn"><pre>值得�
 -	 * placed in the past could significantly boost this task to the
 -	 * fairness detriment of existing tasks.
 -	 */
-<span class="diff-comment-cn">-/* 否则，之后重新规范化，以便我们处于当前时刻，而不是过去的某个随机时刻。放在过去可能会显着增加这项任务，从而损害现有任务的公平性。 */</span>
+<span class="diff-comment-cn">-/* 否则，之后重新规范化，以便我们处于当前时刻，而不是过去的某个随机时刻。放置在过去可能会显着增加这项任务，从而损害现有任务的公平性。 */</span>
 -	if (renorm &amp;&amp; !curr)
 -		se-&gt;vruntime += cfs_rq-&gt;min_vruntime;
 -
@@ -3693,12 +3781,13 @@ have the real thing; use it.</pre></div><div class="pg-cell pg-cn"><pre>值得�
  static void switched_from_fair(struct rq *rq, struct task_struct *p)</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Sebastian Andrzej Siewior — Re: [PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-5" data-author="Sebastian Andrzej Siewior" data-subject="Re: [PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue"><details class="reply-thread"><summary>Sebastian Andrzej Siewior — Re: [PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">S</span>
     <span class="author">Sebastian Andrzej Siewior</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Tue, 12 Sep 2023 17:32:21 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-5')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 2023-05-31 13:58:46 [+0200], Peter Zijlstra wrote:
@@ -3715,12 +3804,13 @@ Is this intended or should it be removed?</pre></div><div class="pg-cell pg-cn">
 <div class="pg-left"><pre>Sebastian</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-6" data-author="Peter Zijlstra" data-subject="Re: [PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 07/15] sched/smp: Use lag to simplify cross-runqueue</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 13 Sep 2023 11:03:30 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-6')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Tue, Sep 12, 2023 at 05:32:21PM +0200, Sebastian Andrzej Siewior wrote:
@@ -3732,16 +3822,17 @@ while and it might be time to remove it.</pre></div><div class="pg-cell pg-cn"><
 <div class="pg-cell"><pre>Ingo?</pre></div><div class="pg-cell pg-cn"><pre>英戈？</pre></div>
 </div>
 </div>
-</details></div></details></div>
+</details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 08/15] sched: Commit to EEVDF <span class="count-badge">4</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-80" data-author="Peter Zijlstra" data-subject="[PATCH 08/15] sched: Commit to EEVDF"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:47 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-80')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>EEVDF is a better defined scheduling policy, as a result it has less
@@ -4039,12 +4130,13 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 -static</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Joel Fernandes — Re: [PATCH 08/15] sched: Commit to EEVDF <span class="count-badge">3</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-44" data-author="Joel Fernandes" data-subject="Re: [PATCH 08/15] sched: Commit to EEVDF"><details class="reply-thread"><summary>Joel Fernandes — Re: [PATCH 08/15] sched: Commit to EEVDF <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">J</span>
     <span class="author">Joel Fernandes</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 16 Jun 2023 21:23:53 +0000</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-44')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, May 31, 2023 at 01:58:47PM +0200, Peter Zijlstra wrote:
@@ -4055,7 +4147,7 @@ heuristics/tunables. There is no compelling reason to keep CFS around.</pre></di
 merits of this diffstat alone and the lesser complexity and getting rid of
 those horrible knobs is kinda nice.</pre></div><div class="pg-cell pg-cn"><pre>无论 EEVDF 是否能帮助我们改善 CFS 延迟问题，我确实喜欢这个 diffstat 的优点，而且复杂性较低，摆脱那些可怕的旋钮也不错。</pre></div>
 <div class="pg-cell"><pre>For ChromeOS, we are experimenting with RT as well for our high priority
-threads, and the PeterZ/Juri&#x27;s patches on DL-server.</pre></div><div class="pg-cell pg-cn"><pre>对于 ChromeOS，我们正在尝试使用 RT 来实现高优先级线程，以及 DL 服务器上的 PeterZ/Juri 补丁。</pre></div>
+threads, and the PeterZ/Juri&#x27;s patches on DL-server.</pre></div><div class="pg-cell pg-cn"><pre>对于 ChromeOS，我们正在针对高优先级线程以及 DL 服务器上的 PeterZ/Juri 补丁尝试 RT。</pre></div>
 <div class="pg-cell"><pre>One of the issues is, on small number of CPU systems and overloaded CPUs, the
 fair scheduler tends to eat up too much from high priority threads. That&#x27;s
 where RT kind of shines in our testing because it just tells those lower
@@ -4069,12 +4161,13 @@ one of the most complex beasts in the kernel so I&#x27;m all for this..</pre></d
 <div class="pg-left"><pre>[...751 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Ingo Molnar — Re: [PATCH 08/15] sched: Commit to EEVDF <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-45" data-author="Ingo Molnar" data-subject="Re: [PATCH 08/15] sched: Commit to EEVDF"><details class="reply-thread"><summary>Ingo Molnar — Re: [PATCH 08/15] sched: Commit to EEVDF <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">I</span>
     <span class="author">Ingo Molnar</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 22 Jun 2023 14:01:07 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-45')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>* Joel Fernandes &lt;joel@joelfernandes.org&gt; wrote:</pre></div><div class="pg-spacer"></div>
@@ -4098,12 +4191,13 @@ from me!</pre></div><div class="pg-cell pg-cn"><pre>但话虽如此，我确实�
 <div class="pg-cell"><pre>	Ingo</pre></div><div class="pg-cell pg-cn"><pre>因戈</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Joel Fernandes — Re: [PATCH 08/15] sched: Commit to EEVDF</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-46" data-author="Joel Fernandes" data-subject="Re: [PATCH 08/15] sched: Commit to EEVDF"><details class="reply-thread"><summary>Joel Fernandes — Re: [PATCH 08/15] sched: Commit to EEVDF</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">J</span>
     <span class="author">Joel Fernandes</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 22 Jun 2023 09:11:17 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-46')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 6/22/23 08:01, Ingo Molnar wrote:
@@ -4114,16 +4208,17 @@ from me!</pre></div><div class="pg-cell pg-cn"><pre>但话虽如此，我确实�
 <div class="pg-left"><pre>  - Joel</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details></div></details></div>
+</details></div></div></details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 09/15] sched/debug: Rename min_granularity to base_slice <span class="count-badge">1</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-81" data-author="Peter Zijlstra" data-subject="[PATCH 09/15] sched/debug: Rename min_granularity to base_slice"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:48 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-81')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>EEVDF uses this tunable as the base request/slice -- make sure the
@@ -4226,16 +4321,17 @@ name reflects this.</pre></div><div class="pg-cell pg-cn"><pre>EEVDF 使用此�
  extern int sysctl_resched_latency_warn_ms;</pre>
   </details>
 </div>
-
+</div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 10/15] sched/fair: Propagate enqueue flags into place_entity() <span class="count-badge">1</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-82" data-author="Peter Zijlstra" data-subject="[PATCH 10/15] sched/fair: Propagate enqueue flags into place_entity()"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:49 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-82')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>This allows place_entity() to consider ENQUEUE_WAKEUP and
@@ -4306,16 +4402,17 @@ ENQUEUE_MIGRATED.</pre></div><div class="pg-cell pg-cn"><pre>这允许 place_ent
  #define RETRY_TASK		((void *)-1UL)</pre>
   </details>
 </div>
-
+</div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH 11/15] sched/eevdf: Better handle mixed slice length <span class="count-badge">5</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-83" data-author="Peter Zijlstra" data-subject="[PATCH 11/15] sched/eevdf: Better handle mixed slice length"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:50 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-83')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>In the case where (due to latency-nice) there are different request
@@ -4419,12 +4516,13 @@ a single slice.</pre></div><div class="pg-cell pg-cn"><pre>注意：这依赖于
  	u64			exec_clock;</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-38" data-author="Vincent Guittot" data-subject="Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length"><details class="reply-thread"><summary>Vincent Guittot — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">V</span>
     <span class="author">Vincent Guittot</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 2 Jun 2023 15:45:18 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-38')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, 31 May 2023 at 14:47, Peter Zijlstra &lt;peterz@infradead.org&gt; wrote:
@@ -4439,12 +4537,13 @@ bandwidth</pre></div><div class="pg-cell pg-cn"><pre>这个 PLACE_FUDGE 看起�
 <div class="pg-left"><pre>[...28 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-39" data-author="Peter Zijlstra" data-subject="Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 2 Jun 2023 17:06:33 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-39')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Fri, Jun 02, 2023 at 03:45:18PM +0200, Vincent Guittot wrote:
@@ -4455,19 +4554,20 @@ bandwidth</pre></div><div class="pg-cell pg-cn"><pre>这个 PLACE_FUDGE 看起�
 &gt; bandwidth</pre></div><div class="pg-spacer"></div>
 <div class="pg-cell"><pre>Yeah, probably :/ Even though entity_has_slept() ensures the task slept
 for at least one slice, that&#x27;s probably not enough to preserve the
-bandwidth contraints.</pre></div><div class="pg-cell pg-cn"><pre>是的，可能是：/尽管entity_has_slept()确保任务至少休眠一个切片，但这可能不足以保留带宽限制。</pre></div>
+bandwidth contraints.</pre></div><div class="pg-cell pg-cn"><pre>是的，可能是：/ 尽管entity_has_slept() 确保任务至少休眠一个切片，但这可能不足以保留带宽限制。</pre></div>
 <div class="pg-cell"><pre>The fairness analysis in the paper conveniently avoids all &#x27;interesting&#x27;
 cases, including their own placement policies.</pre></div><div class="pg-cell pg-cn"><pre>论文中的公平性分析很方便地避免了所有“有趣”的案例，包括他们自己的安置政策。</pre></div>
 <div class="pg-cell"><pre>I&#x27;ll sit on this one longer and think a bit more about it.</pre></div><div class="pg-cell pg-cn"><pre>我会在这个问题上多坐一会儿，多思考一下。</pre></div>
 </div>
 </div>
-</details></div></details>
-<details class="reply-thread"><summary>Chen Yu — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length <span class="count-badge">2</span></summary><div class="email-card">
+</details></div></div></details></div>
+<div class="email-node" id="email-node-43" data-author="Chen Yu" data-subject="Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length"><details class="reply-thread"><summary>Chen Yu — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">C</span>
     <span class="author">Chen Yu</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Sat, 10 Jun 2023 14:34:04 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-43')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 2023-05-31 at 13:58:50 +0200, Peter Zijlstra wrote:
@@ -4480,12 +4580,13 @@ A minor question, should it be now - se-&gt;exec_start ?
 Chenyu</pre></div><div class="pg-cell pg-cn"><pre>谢谢陈宇</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-4" data-author="Peter Zijlstra" data-subject="Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH 11/15] sched/eevdf: Better handle mixed slice length</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Sat, 10 Jun 2023 13:22:41 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-4')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Sat, Jun 10, 2023 at 02:34:04PM +0800, Chen Yu wrote:</pre></div><div class="pg-spacer"></div>
@@ -4499,16 +4600,17 @@ Chenyu</pre></div><div class="pg-cell pg-cn"><pre>谢谢陈宇</pre></div>
 	rerturn delta/W &gt; vslice</pre></div><div class="pg-cell pg-cn"><pre>delta = new - se-&gt;exec-&gt;start 返回 delta/W &gt; vslice</pre></div>
 </div>
 </div>
-</details></div></details></div>
+</details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[RFC][PATCH 12/15] sched: Introduce latency-nice as a per-task attribute <span class="count-badge">1</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-84" data-author="Peter Zijlstra" data-subject="[RFC][PATCH 12/15] sched: Introduce latency-nice as a per-task attribute"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:51 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-84')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>From: Parth Shah &lt;parth@linux.ibm.com&gt;</pre></div><div class="pg-cell pg-cn"><pre>来自：Parth Shah &lt;parth@linux.ibm.com&gt;</pre></div>
@@ -4746,16 +4848,17 @@ Signed-off-by: Peter Zijlstra (Intel) &lt;peterz@infradead.org&gt;</pre></div><d
  #endif /* _UAPI_LINUX_SCHED_H */</pre>
   </details>
 </div>
-
+</div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[RFC][PATCH 13/15] sched/fair: Implement latency-nice <span class="count-badge">5</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-85" data-author="Peter Zijlstra" data-subject="[RFC][PATCH 13/15] sched/fair: Implement latency-nice"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:52 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-85')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Implement latency-nice as a modulation of the EEVDF r_i parameter,
@@ -4875,19 +4978,20 @@ Tested-by: K Prateek Nayak &lt;kprateek.nayak@amd.com&gt;</pre></div><div class=
  /*</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Vincent Guittot — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice <span class="count-badge">3</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-40" data-author="Vincent Guittot" data-subject="Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice"><details class="reply-thread"><summary>Vincent Guittot — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">V</span>
     <span class="author">Vincent Guittot</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Tue, 6 Jun 2023 16:54:13 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-40')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, 31 May 2023 at 14:47, Peter Zijlstra &lt;peterz@infradead.org&gt; wrote:
 [...7 行引用已省略...]
 &gt;   latency-nice  19: 3*1024 / 15    ~= 204.8 [ms]
 &gt;   latency-nice -20: 3*1024 / 88761 ~= 0.034 [ms]</pre></div><div class="pg-spacer"></div>
-<div class="pg-cell"><pre>I have reread the publication. I have question about</pre></div><div class="pg-cell pg-cn"><pre>我重读了该出版物。我有疑问</pre></div>
+<div class="pg-cell"><pre>I have reread the publication. I have question about</pre></div><div class="pg-cell pg-cn"><pre>I have reread the publication.我有疑问</pre></div>
 <div class="pg-cell"><pre>Theorem 1: The lag of any active client k in a steady system is
 bounded as follows,
     -rmax &lt; lagk (d) &lt; max(rmax ; q);</pre></div><div class="pg-cell pg-cn"><pre>定理 1：稳定系统中任何活动客户端 k 的滞后有界如下，
@@ -4918,12 +5022,13 @@ I wonder how we can then rely on its theorems and corollaries</pre></div><div cl
 <div class="pg-left"><pre>[...108 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-41" data-author="Peter Zijlstra" data-subject="Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice"><details class="reply-thread"><summary>Peter Zijlstra — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 8 Jun 2023 12:34:58 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-41')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Tue, Jun 06, 2023 at 04:54:13PM +0200, Vincent Guittot wrote:
@@ -4955,19 +5060,20 @@ account, that&#x27;s where the max(rmax, q) term comes from.</pre></div><div cla
 invalidate the results. Note that if a task overshoots, it will build of
 significant negative lag (right side of the tree) and won&#x27;t be eligible
 for it&#x27;s next actual period. This &#x27;hole&#x27; in the schedule is then used to
-make up for the extra time it used previously.</pre></div><div class="pg-cell pg-cn"><pre>你是对的， r_i &lt; q 的行为并不“正确”，但它不会使结果无效。请注意，如果任务超调，它将产生显着的负滞后（树的右侧），并且不符合下一个实际周期的条件。然后，日程表中的这个“漏洞”将被用来弥补之前使用的额外时间。</pre></div>
+make up for the extra time it used previously.</pre></div><div class="pg-cell pg-cn"><pre>You&#x27;re right in that r_i &lt; q does not behave &#x27;right&#x27;, but it doesn&#x27;t invalidate the results.请注意，如果任务超调，它将产生显着的负滞后（树的右侧），并且不符合下一个实际周期的条件。 This &#x27;hole&#x27; in the schedule is then used to make up for the extra time it used previously.</pre></div>
 <div class="pg-cell"><pre>The much bigger problem with those bounds is this little caveat: &#x27;in a
 steady state&#x27;. They conveniently fail to consider the impact of
 leave/join operations on the whole thing -- and that&#x27;s a much more
-interesting case.</pre></div><div class="pg-cell pg-cn"><pre>这些界限的更大问题是这个小警告：“处于稳定状态”。他们很容易没有考虑离开/加入操作对整个事情的影响——这是一个更有趣的例子。</pre></div>
+interesting case.</pre></div><div class="pg-cell pg-cn"><pre>这些界限的更大问题是这个小警告：“处于稳定状态”。他们很容易没有考虑离开/加入操作对整个事情的影响——这是一个更有趣的情况。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-3" data-author="Peter Zijlstra" data-subject="Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice"><details class="reply-thread"><summary>Peter Zijlstra — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Thu, 8 Jun 2023 14:44:40 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-3')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Thu, Jun 08, 2023 at 12:34:58PM +0200, Peter Zijlstra wrote:
@@ -4988,13 +5094,14 @@ it needs to be something like:</pre></div><div class="pg-cell pg-cn"><pre>这就
 is shouldn&#x27;t be able to game the system.</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details></div></details>
-<details class="reply-thread"><summary>Benjamin Segall — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice</summary><div class="email-card">
+</details></div></div></details></div></div></details></div>
+<div class="email-node" id="email-node-66" data-author="Benjamin Segall" data-subject="Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice"><details class="reply-thread"><summary>Benjamin Segall — Re: [RFC][PATCH 13/15] sched/fair: Implement latency-nice</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">B</span>
     <span class="author">Benjamin Segall</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Wed, 11 Oct 2023 16:24:39 -0700</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-66')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>message of &quot;Wed, 31 May 2023 13:58:52 +0200&quot;)&gt;</pre></div><div class="pg-cell pg-cn"><pre>Peter Zijlstra &lt;peterz@infradead.org&gt; writes:</pre></div>
@@ -5016,16 +5123,17 @@ updated. Having such a task run for 68 times normal seems likely to have
 far worse latency effects than any gains from other parts.</pre></div><div class="pg-cell pg-cn"><pre>我们可能不希望具有正常权重和低延迟权重（又名高延迟/延迟良好值）的任务对其中某些任务具有非常非常高的分片值。 get_rr_interval_fair 是什么，它并不是真正存在的数字，并且 CONFIG_SCHED_CORE 根本没有针对 EEVDF 进行更新，但 HRTICK 至少可能应该更新。让这样的任务运行 68 倍正常时间似乎可能比其他部分的任何收益带来更糟糕的延迟影响。</pre></div>
 </div>
 </div>
-</details></div>
+</details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[RFC][PATCH 14/15] sched/fair: Add sched group latency support <span class="count-badge">1</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-86" data-author="Peter Zijlstra" data-subject="[RFC][PATCH 14/15] sched/fair: Add sched group latency support"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:53 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-86')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>From: Vincent Guittot &lt;vincent.guittot@linaro.org&gt;</pre></div><div class="pg-cell pg-cn"><pre>发件人：文森特·吉托 &lt;vincent.guittot@linaro.org&gt;</pre></div>
@@ -5195,16 +5303,17 @@ Link: https://lkml.kernel.org/r/20230224093454.956298-7-vincent.guittot@linaro.o
  			     struct cfs_rq *prev, struct cfs_rq *next);</pre>
   </details>
 </div>
-
+</div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to <span class="count-badge">3</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-87" data-author="Peter Zijlstra" data-subject="[RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to set request/sli"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 31 May 2023 13:58:54 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-87')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>As an alternative to the latency-nice interface; allow applications to
@@ -5276,12 +5385,13 @@ reduce latency.</pre></div><div class="pg-cell pg-cn"><pre>应用程序应努力
  /**</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Vincent Guittot — Re: [RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-37" data-author="Vincent Guittot" data-subject="Re: [RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to"><details class="reply-thread"><summary>Vincent Guittot — Re: [RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">V</span>
     <span class="author">Vincent Guittot</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 1 Jun 2023 15:55:18 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-37')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Wed, 31 May 2023 at 14:47, Peter Zijlstra &lt;peterz@infradead.org&gt; wrote:
@@ -5318,12 +5428,13 @@ want to keep your allocated running time.</pre></div><div class="pg-cell pg-cn">
 <div class="pg-left"><pre>[...65 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-42" data-author="Peter Zijlstra" data-subject="Re: [RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to"><details class="reply-thread"><summary>Peter Zijlstra — Re: [RFC][PATCH 15/15] sched/eevdf: Use sched_attr::sched_runtime to</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 8 Jun 2023 13:52:58 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-42')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Thu, Jun 01, 2023 at 03:55:18PM +0200, Vincent Guittot wrote:
@@ -5408,16 +5519,17 @@ suffer preemption.</pre></div><div class="pg-cell pg-cn"><pre>相反，如果您
 <div class="pg-cell"><pre>SCHED_BATCH is what we have for that. That actually works.</pre></div><div class="pg-cell pg-cn"><pre>SCHED_BATCH 就是我们所拥有的。这确实有效。</pre></div>
 </div>
 </div>
-</details></div></details></div>
+</details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH] sched/fair: fix pick_eevdf to always find the correct <span class="count-badge">10</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-88" data-author="Benjamin Segall" data-subject="[PATCH] sched/fair: fix pick_eevdf to always find the correct se"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">B</span>
     <span class="author">Benjamin Segall</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Fri, 29 Sep 2023 17:09:30 -0700</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-88')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>message of &quot;Wed, 31 May 2023 13:58:44 +0200&quot;)&gt;</pre></div><div class="pg-spacer"></div>
@@ -5522,7 +5634,7 @@ index 0c31cda0712f..77e9440b8ab3 100644
 +	 * We ran into an eligible node which is itself the best.
 +	 * (Or nr_running == 0 and both are NULL)
 +	 */
-<span class="diff-comment-cn">+/* 我们遇到了一个符合条件的节点，它本身就是最好的。 （或者 nr_running == 0 且均为 NULL） */</span>
+<span class="diff-comment-cn">+/* 我们遇到了一个符合条件的节点，它本身就是最好的。 (Or nr_running == 0 and both are NULL) */</span>
 +	if (!best_left || (s64)(best_left-&gt;min_deadline - best-&gt;deadline) &gt; 0)
 +		return best;
 +
@@ -5581,12 +5693,13 @@ index 0c31cda0712f..77e9440b8ab3 100644
 2.42.0.582.g8ccd20d70d-goog</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-28" data-author="Benjamin Segall" data-subject="Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">B</span>
     <span class="author">Benjamin Segall</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 13 Oct 2023 09:51:48 -0700</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-28')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>message of &quot;Fri, 13 Oct 2023 11:46:24 +0800&quot;)&gt;</pre></div><div class="pg-cell pg-cn"><pre>Abel Wu &lt;wuyun.abel@bytedance.com&gt; writes:</pre></div>
@@ -5598,13 +5711,14 @@ index 0c31cda0712f..77e9440b8ab3 100644
 fairness, that would help.</pre></div><div class="pg-cell pg-cn"><pre>啊，是的，就优化性能而不是边际公平而言，这会有所帮助。</pre></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">2</span></summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-67" data-author="Benjamin Segall" data-subject="Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">B</span>
     <span class="author">Benjamin Segall</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Thu, 12 Oct 2023 10:51:22 -0700</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-67')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>message of &quot;Thu, 12 Oct 2023 18:25:06 +0800&quot;)&gt;</pre></div><div class="pg-cell pg-cn"><pre>Abel Wu &lt;wuyun.abel@bytedance.com&gt; writes:</pre></div>
@@ -5626,12 +5740,13 @@ slight fairness improvement is worth compared to the extra bit of
 overhead)</pre></div><div class="pg-cell pg-cn"><pre>（尽管我再次不知道与额外的开销相比，这种永远不会发生的轻微公平性改进值得多少钱）</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-25" data-author="Abel Wu" data-subject="Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 13 Oct 2023 11:46:24 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-25')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 10/13/23 1:51 AM, Benjamin Segall Wrote:
@@ -5672,13 +5787,14 @@ was to avoid touch left if the node itself has the min deadline.</pre></div><div
 <div class="pg-left"><pre>[...11 行引用已省略...]</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details>
-<details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">2</span></summary><div class="email-card">
+</details></div></div></details></div>
+<div class="email-node" id="email-node-21" data-author="Benjamin Segall" data-subject="Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se"><details class="reply-thread"><summary>Benjamin Segall — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">B</span>
     <span class="author">Benjamin Segall</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 14:01:02 -0700</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-21')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>message of &quot;Wed, 11 Oct 2023 20:12:09 +0800&quot;)&gt;</pre></div><div class="pg-cell pg-cn"><pre>Abel Wu &lt;wuyun.abel@bytedance.com&gt; writes:</pre></div>
@@ -5773,9 +5889,8 @@ BUG_ON(!cand);节点 = &amp;cand-&gt;run_node; se = __node_2_se(节点); all_eli
 * 左子树作为候选。 */
 				if (!cand || Deadline_gt(min_deadline, cand, left))
 坎德 = 左； } }</pre></div>
-<div class="pg-cell"><pre>		if (!all_eligible &amp;&amp; (!best || deadline_gt(deadline, best, se)))
-			best = se;</pre></div><div class="pg-cell pg-cn"><pre>if (!all_eligible &amp;&amp; (!best || period_gt(deadline, best, se)))
-最好=se；</pre></div>
+<div class="pg-left"><pre>		if (!all_eligible &amp;&amp; (!best || deadline_gt(deadline, best, se)))
+			best = se;</pre></div><div class="pg-spacer"></div>
 <div class="pg-cell"><pre>		/* min_deadline is at this node, no need to look right */
 		if (se-&gt;deadline == se-&gt;min_deadline) {
 			if (all_eligible &amp;&amp; (!best || deadline_gte(deadline, best, se)))
@@ -5792,9 +5907,8 @@ BUG_ON(!cand);节点 = &amp;cand-&gt;run_node; se = __node_2_se(节点); all_eli
 最好=se；节点=空；继续; }</pre></div>
 <div class="pg-cell"><pre>		node = node-&gt;rb_right;
 	}</pre></div><div class="pg-cell pg-cn"><pre>节点=节点-&gt;rb_right； }</pre></div>
-<div class="pg-cell"><pre>	return best;
-}</pre></div><div class="pg-cell pg-cn"><pre>返回最好的；
-}</pre></div>
+<div class="pg-left"><pre>	return best;
+}</pre></div><div class="pg-spacer"></div>
 <div class="pg-cell"><pre>This does exactly as well on the tiebreak condition of vruntime as the
 improved two-loop version you suggested. If we don&#x27;t care about the
 tiebreak we can replace the ugly if(all_eligible) if(!all_eligible) in
@@ -5808,12 +5922,13 @@ preference in the first place)</pre></div><div class="pg-cell pg-cn"><pre>就个
 hopefully I attached it in a correct mode to go through lkml.</pre></div><div class="pg-cell pg-cn"><pre>我还附上了我丑陋的用户空间 EEVDF 测试仪作为附件，希望我以正确的模式附加它以通过 lkml。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-24" data-author="Abel Wu" data-subject="Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Thu, 12 Oct 2023 18:25:06 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-24')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 10/12/23 5:01 AM, Benjamin Segall Wrote:
@@ -5836,13 +5951,14 @@ hopefully I attached it in a correct mode to go through lkml.</pre></div><div cl
 <div class="pg-left"><pre>Received. Thanks, Ben.</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div></details>
-<details class="reply-thread"><summary>Abel Wu — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">3</span></summary><div class="email-card">
+</details></div></div></details></div>
+<div class="email-node" id="email-node-94" data-author="Abel Wu" data-subject="Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se"><details class="reply-thread"><summary>Abel Wu — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">3</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed, 11 Oct 2023 20:12:09 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-94')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 9/30/23 8:09 AM, Benjamin Segall Wrote:
@@ -5996,10 +6112,10 @@ hopefully I attached it in a correct mode to go through lkml.</pre></div><div cl
 &gt;   #ifdef CONFIG_SCHED_DEBUG
 &gt;   struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
 &gt;   {</pre></div><div class="pg-spacer"></div>
-<div class="pg-cell"><pre>The implementation of __pick_eevdf() now is quite complicated which
+<div class="pg-left"><pre>The implementation of __pick_eevdf() now is quite complicated which
 makes it really hard to maintain. I&#x27;m trying my best to refactor this
 part, hopefully can do some help. Below is only for illustration, I
-need to test more.</pre></div><div class="pg-cell pg-cn"><pre>__pick_eevdf() 的实现现在非常复杂，这使得它很难维护。我正在尽力重构这部分，希望能提供一些帮助。以下仅用于说明，还需要我进行更多测试。</pre></div>
+need to test more.</pre></div><div class="pg-spacer"></div>
 <div class="pg-left"><pre>static struct sched_entity *__pick_eevdf(struct cfs_rq *cfs_rq)
 {
 	struct rb_node *node = cfs_rq-&gt;tasks_timeline.rb_root.rb_node;
@@ -6008,8 +6124,7 @@ need to test more.</pre></div><div class="pg-cell pg-cn"><pre>__pick_eevdf() 的
 	struct sched_entity *cand = NULL;
 	bool all_eligible = false;</pre></div><div class="pg-spacer"></div>
 <div class="pg-cell"><pre>	if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
-		curr = NULL;</pre></div><div class="pg-cell pg-cn"><pre>if (curr &amp;&amp; (!curr-&gt;on_rq || !entity_eligible(cfs_rq, curr)))
-当前=空；</pre></div>
+		curr = NULL;</pre></div><div class="pg-cell pg-cn"><pre>.. cfs_rq-&gt;curr isn&#x27;t considered here.</pre></div>
 <div class="pg-cell"><pre>	/*
 	 * Once selected, run a task until it either becomes non-eligible or
 	 * until it gets a new slice. See the HACK in set_next_entity().
@@ -6074,20 +6189,20 @@ need to test more.</pre></div><div class="pg-cell pg-cn"><pre>__pick_eevdf() 的
 		}
 	}</pre></div><div class="pg-cell pg-cn"><pre>if (!node &amp;&amp; cand) {
 节点=cand； all_eligible = true；坎德=空； } }</pre></div>
-<div class="pg-cell"><pre>	if (!best || (curr &amp;&amp; deadline_gt(deadline, best, curr)))
-		best = curr;</pre></div><div class="pg-cell pg-cn"><pre>if (!best || (curr &amp;&amp; period_gt(deadline, best, curr)))
-最好=当前；</pre></div>
+<div class="pg-left"><pre>	if (!best || (curr &amp;&amp; deadline_gt(deadline, best, curr)))
+		best = curr;</pre></div><div class="pg-spacer"></div>
 <div class="pg-cell"><pre>	return best;
-}</pre></div><div class="pg-cell pg-cn"><pre>返回最好的；
-}</pre></div>
+}</pre></div><div class="pg-cell pg-cn"><pre>	if (!best || (curr &amp;&amp; deadline_gt(deadline, best, curr)))
+		best = curr;</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-19" data-author="Peter Zijlstra" data-subject="Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct se <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 11 Oct 2023 15:14:54 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-19')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>On Wed, Oct 11, 2023 at 08:12:09PM +0800, Abel Wu wrote:</pre></div><div class="pg-cell pg-cn"><pre>2023 年 10 月 11 日星期三晚上 08:12:09 +0800，Abel Wu 写道：</pre></div>
@@ -6105,12 +6220,13 @@ broken (and woe on me for not verifying it when I resurrected the
 patches, I rewrote pretty much everything else, except this lookup :/).</pre></div><div class="pg-cell pg-cn"><pre>非常模糊的记忆似乎表明，大约十多年前，当我写了另一个像样的循环时，Ben 证明它被破坏了，我认为自己很聪明（当我复活补丁时，我没有验证它，我重写了几乎所有其他内容，除了这个查找:/）。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-23" data-author="Abel Wu" data-subject="Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct"><details class="reply-thread"><summary>Abel Wu — Re: Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">A</span>
     <span class="author">Abel Wu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Thu, 12 Oct 2023 18:04:17 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-23')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On 10/11/23 9:14 PM, Peter Zijlstra Wrote:
@@ -6159,35 +6275,35 @@ vruntime if have same deadline). Then comes with eligibility:</pre></div><div cl
 <div class="pg-cell"><pre>which makes:</pre></div><div class="pg-cell pg-cn"><pre>这使得：</pre></div>
 <div class="pg-cell"><pre>	candidate = NULL;
 	need_check = true;</pre></div><div class="pg-cell pg-cn"><pre>候选人=空；需要检查=真；</pre></div>
-<div class="pg-cell"><pre>	while (node) {
+<div class="pg-left"><pre>	while (node) {
 		/* 0 */
 		if (need_check &amp;&amp; !eligible(node)) {
 			node = node-&gt;left;
 			goto next;
-		}</pre></div><div class="pg-cell pg-cn"><pre>而（节点）{
-		/* 0 */
-		if (need_check &amp;&amp; !eligible(node)) {
-节点=节点-&gt;左；转到下一个； }</pre></div>
+		}</pre></div><div class="pg-spacer"></div>
 <div class="pg-left"><pre>		if ((left = node-&gt;left)) {
 			/* 1.1 */
 			BUG_ON(left-&gt;min &lt; node-&gt;min);</pre></div><div class="pg-spacer"></div>
-<div class="pg-left"><pre>			/* 2.1 */
+<div class="pg-cell"><pre>			/* 2.1 */
 			if (left-&gt;min == node-&gt;min) {
 				node = left;
 				/* 4 */
 				need_check = false;
 				continue;
-			}</pre></div><div class="pg-spacer"></div>
-<div class="pg-cell"><pre>			/* 3.2.1 */
+			}</pre></div><div class="pg-cell pg-cn"><pre>	while (node) {
+		/* 0 */
+		if (need_check &amp;&amp; !eligible(node)) {
+			node = node-&gt;left;
+			goto next;
+		}</pre></div>
+<div class="pg-left"><pre>			/* 3.2.1 */
 			if (need_check)
 				candidate = better(candidate, left);
-		}</pre></div><div class="pg-cell pg-cn"><pre>/* 3.2.1 */
-			如果（需要检查）
-候选人=更好（候选人，左）； }</pre></div>
+		}</pre></div><div class="pg-spacer"></div>
 <div class="pg-left"><pre>		/* 3.1 */
 		if (node-&gt;deadline == node-&gt;min)
 			return node;</pre></div><div class="pg-spacer"></div>
-<div class="pg-left"><pre>		/* 3.2 */
+<div class="pg-cell"><pre>		/* 3.2 */
 		node = node-&gt;right;
 	next:
 		/* 5 */
@@ -6196,7 +6312,10 @@ vruntime if have same deadline). Then comes with eligibility:</pre></div><div cl
 			need_check = false; /* 4 */
 			candidate = NULL;
 		}
-	}</pre></div><div class="pg-spacer"></div>
+	}</pre></div><div class="pg-cell pg-cn"><pre>			/* 3.2.1 */
+			if (need_check)
+				candidate = better(candidate, left);
+		}</pre></div>
 <div class="pg-cell"><pre>The search ends with a &#x27;best&#x27; entity on the tree, comparing it with
 curr which is out of tree makes things a whole.</pre></div><div class="pg-cell pg-cn"><pre>搜索以树上的“最佳”实体结束，将其与树外的 curr 进行比较，使事情成为一个整体。</pre></div>
 <div class="pg-cell"><pre>But it&#x27;s absolutely fine to me to honor the 2-step search given by
@@ -6205,13 +6324,14 @@ the paper if you think that is already clear enough :)</pre></div><div class="pg
 	Abel</pre></div><div class="pg-cell pg-cn"><pre>最好的，阿贝尔</pre></div>
 </div>
 </div>
-</details></div></details></div></details>
-<details class="reply-thread"><summary>Marek Szyprowski — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
+</details></div></div></details></div></div></details></div>
+<div class="email-node" id="email-node-9" data-author="Marek Szyprowski" data-subject="Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct"><details class="reply-thread"><summary>Marek Szyprowski — Re: [PATCH] sched/fair: fix pick_eevdf to always find the correct</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">M</span>
     <span class="author">Marek Szyprowski</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 4 Oct 2023 22:39:39 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-9')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hi,</pre></div><div class="pg-spacer"></div>
@@ -6230,10 +6350,10 @@ WARNING: possible circular locking dependency detected
 systemd-udevd/1187 is trying to acquire lock:
 ffffbcc2be0c4de0 (console_owner){..-.}-{0:0}, at: 
 console_flush_all+0x1b0/0x500</pre></div><div class="pg-spacer"></div>
-<div class="pg-cell"><pre>but task is already holding lock:
-ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}, at: __schedule+0xe0/0xc40</pre></div><div class="pg-cell pg-cn"><pre>但任务已经锁定：
-ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}，位于：__schedule+0xe0/0xc40</pre></div>
-<div class="pg-cell"><pre>which lock already depends on the new lock.</pre></div><div class="pg-cell pg-cn"><pre>哪个锁已经依赖于新锁。</pre></div>
+<div class="pg-left"><pre>but task is already holding lock:
+ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}, at: __schedule+0xe0/0xc40</pre></div><div class="pg-spacer"></div>
+<div class="pg-cell"><pre>which lock already depends on the new lock.</pre></div><div class="pg-cell pg-cn"><pre>but task is already holding lock:
+ffff5535ffdd2b18 (&amp;rq-&gt;__lock){-.-.}-{2:2}, at: __schedule+0xe0/0xc40</pre></div>
 <div class="pg-cell"><pre>the existing dependency chain (in reverse order) is:</pre></div><div class="pg-cell pg-cn"><pre>现有的依赖链（按相反顺序）是：</pre></div>
 <div class="pg-left"><pre>-&gt; #4 (&amp;rq-&gt;__lock){-.-.}-{2:2}:
         _raw_spin_lock_nested+0x44/0x5c
@@ -6401,16 +6521,17 @@ this issue.</pre></div><div class="pg-cell pg-cn"><pre>问题可能出在其他�
 <div class="pg-left"><pre>Best regards</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div>
+</details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline <span class="count-badge">4</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-90" data-author="Daniel Jordan" data-subject="[PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">D</span>
     <span class="author">Daniel Jordan</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Wed,  4 Oct 2023 09:09:08 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-90')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>An entity is supposed to get an earlier deadline with
@@ -6499,12 +6620,13 @@ index a0b4dac2662c9..3827b302eeb9b 100644
 2.41.0</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>K Prateek Nayak — Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-95" data-author="K Prateek Nayak" data-subject="Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline"><details class="reply-thread"><summary>K Prateek Nayak — Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">K</span>
     <span class="author">K Prateek Nayak</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Thu, 12 Oct 2023 10:18:10 +0530</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-95')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Hello Daniel,</pre></div><div class="pg-cell pg-cn"><pre>你好丹尼尔，</pre></div>
@@ -6613,14 +6735,27 @@ Statistic     : Median
 128     1.00 [ -0.00]( 3.41)     0.99 [  1.44]( 2.69)
 256     1.00 [ -0.00](32.95)     0.81 [ 19.17](16.38)
 512     1.00 [ -0.00]( 3.20)     0.98 [  1.66]( 2.35)</pre></div><div class="pg-spacer"></div>
-<div class="pg-left"><pre>==================================================================
+<div class="pg-cell"><pre>==================================================================
 Test          : ycsb-cassandra
 Units         : Normalized throughput
 Interpretation: Higher is better
 Statistic     : Mean
 ==================================================================
 metric          tip    place-initial-fix(%diff)
-throughput      1.00    0.99 (%diff: -0.67%)</pre></div><div class="pg-spacer"></div>
+throughput      1.00    0.99 (%diff: -0.67%)</pre></div><div class="pg-cell pg-cn"><pre>==================================================================
+Test          : DeathStarBench
+Units         : Normalized throughput
+Interpretation: Higher is better
+Statistic     : Mean
+Note	      : Comparisons contains additional commit 8dafa9d0eb1a
+		(&quot;sched/eevdf: Fix min_deadline heap integrity&quot;) from
+		tip:sched/urgent to fix an EEVDF issue being hit
+==================================================================
+Pinning      scaling    tip     place-initial-fix (%diff)
+1CCD            1       1.00    1.00 (%diff: -0.09%)
+2CCD            2       1.00    1.02 (%diff: 2.46%)
+4CCD            4       1.00    1.00 (%diff: 0.45%)
+8CCD            8       1.00    1.00 (%diff: -0.46%)</pre></div>
 <div class="pg-left"><pre>==================================================================
 Test          : ycsb-mondodb
 Units         : Normalized throughput
@@ -6732,13 +6867,14 @@ Thanks and Regards,
 Prateek</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details>
-<details class="reply-thread"><summary>Chen Yu — Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline <span class="count-badge">2</span></summary><div class="email-card">
+</details></div>
+<div class="email-node" id="email-node-8" data-author="Chen Yu" data-subject="Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline"><details class="reply-thread"><summary>Chen Yu — Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">C</span>
     <span class="author">Chen Yu</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Wed, 4 Oct 2023 23:46:21 +0800</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-8')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hi Daniel,</pre></div><div class="pg-spacer"></div>
@@ -6765,12 +6901,13 @@ in enqueue_entity().</pre></div><div class="pg-cell pg-cn"><pre>然后我想知�
 Chenyu</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-10" data-author="Daniel Jordan" data-subject="Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH v2] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#dc3545">D</span>
     <span class="author">Daniel Jordan</span>
     <span class="tag" style="background:#dc3545">讨论</span>
     <span class="date">Fri, 6 Oct 2023 12:31:46 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-10')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hi Chenyu,</pre></div><div class="pg-spacer"></div>
@@ -6791,16 +6928,17 @@ placing should always happen after update_curr().</pre></div><div class="pg-cell
 <div class="pg-cell"><pre>Daniel</pre></div><div class="pg-cell pg-cn"><pre>丹尼尔</pre></div>
 </div>
 </div>
-</details></div></details></div>
+</details></div></div></details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH] sched/fair: Always update_curr() before placing at enqueue <span class="count-badge">4</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-92" data-author="Daniel Jordan" data-subject="[PATCH] sched/fair: Always update_curr() before placing at enqueue"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">D</span>
     <span class="author">Daniel Jordan</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Fri,  6 Oct 2023 12:48:26 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-92')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Placing wants current&#x27;s vruntime and the cfs_rq&#x27;s min_vruntime up to
@@ -6866,12 +7004,13 @@ index 04fbcbda97d5f..db2ca9bf9cc49 100644
 2.41.0</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH] sched/fair: Always update_curr() before placing at <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-93" data-author="Peter Zijlstra" data-subject="Re: [PATCH] sched/fair: Always update_curr() before placing at"><details class="reply-thread"><summary>Peter Zijlstra — Re: [PATCH] sched/fair: Always update_curr() before placing at <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">P</span>
     <span class="author">Peter Zijlstra</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Fri, 6 Oct 2023 21:58:10 +0200</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-93')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Oct 06, 2023 at 12:48:26PM -0400, Daniel Jordan wrote:
@@ -6921,12 +7060,13 @@ time forward in this case.</pre></div><div class="pg-cell pg-cn"><pre>我们到�
 <div class="pg-cell"><pre>Could be that all magically works, but please double check.</pre></div><div class="pg-cell pg-cn"><pre>可能一切都神奇地起作用，但请仔细检查。</pre></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH] sched/fair: Always update_curr() before placing at</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-98" data-author="Daniel Jordan" data-subject="Re: [PATCH] sched/fair: Always update_curr() before placing at"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH] sched/fair: Always update_curr() before placing at</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">D</span>
     <span class="author">Daniel Jordan</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Tue, 17 Oct 2023 20:43:54 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-98')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>On Fri, Oct 06, 2023 at 09:58:10PM +0200, Peter Zijlstra wrote:
@@ -6987,13 +7127,14 @@ have it all by the next day.  It&#x27;ll take a bit longer to sort out all
 the cases, but I&#x27;ll keep going.</pre></div><div class="pg-cell pg-cn"><pre>抱歉回复晚了，我盯着看了一会儿，以为第二天就能拿到全部了。  解决所有案件需要更长的时间，但我会继续下去。</pre></div>
 </div>
 </div>
-</details></div></details>
-<details class="reply-thread"><summary>K Prateek Nayak — Re: [PATCH] sched/fair: Always update_curr() before placing at</summary><div class="email-card">
+</details></div></div></details></div>
+<div class="email-node" id="email-node-97" data-author="K Prateek Nayak" data-subject="Re: [PATCH] sched/fair: Always update_curr() before placing at"><details class="reply-thread"><summary>K Prateek Nayak — Re: [PATCH] sched/fair: Always update_curr() before placing at</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">K</span>
     <span class="author">K Prateek Nayak</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Mon, 16 Oct 2023 11:09:11 +0530</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-97')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>Hello Daniel,</pre></div><div class="pg-cell pg-cn"><pre>你好丹尼尔，</pre></div>
@@ -7111,14 +7252,21 @@ Statistic     : Median
 128     1.00 [ -0.00]( 1.49)     0.96 [  3.60]( 8.01)
 256     1.00 [ -0.00](40.79)     0.80 [ 20.39](36.89)
 512     1.00 [ -0.00]( 1.12)     0.98 [  2.20]( 0.75)</pre></div><div class="pg-spacer"></div>
-<div class="pg-left"><pre>==================================================================
+<div class="pg-cell"><pre>==================================================================
 Test          : ycsb-cassandra
 Units         : Normalized throughput
 Interpretation: Higher is better
 Statistic     : Mean
 ==================================================================
 metric      tip     update_curr_opt (%diff)
-throughput  1.00    1.00 (%diff: -0.45%)</pre></div><div class="pg-spacer"></div>
+throughput  1.00    1.00 (%diff: -0.45%)</pre></div><div class="pg-cell pg-cn"><pre>==================================================================
+Test          : ycsb-mondodb
+Units         : Normalized throughput
+Interpretation: Higher is better
+Statistic     : Mean
+==================================================================
+metric      tip     update_curr_opt (%diff)
+throughput  1.00    1.00 (%diff: -0.13%)</pre></div>
 <div class="pg-left"><pre>==================================================================
 Test          : ycsb-mondodb
 Units         : Normalized throughput
@@ -7195,16 +7343,17 @@ Thanks and Regards,
 Prateek</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-</details></div>
+</details></div></div></div>
 </div>
 <div class="thread">
 <h3 class="thread-title">[PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline <span class="count-badge">3</span></h3>
-<div class="email-card">
+<div class="email-node" id="email-node-89" data-author="Daniel Jordan" data-subject="[PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline"><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">D</span>
     <span class="author">Daniel Jordan</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Tue,  3 Oct 2023 21:17:37 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-89')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-cell"><pre>An entity is supposed to get an earlier deadline with
@@ -7256,12 +7405,13 @@ index a0b4dac2662c9..5872b8a3f5891 100644
 2.41.0</pre>
   </details>
 </div>
-<div class="replies"><details class="reply-thread"><summary>K Prateek Nayak — Re: [PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline <span class="count-badge">2</span></summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-91" data-author="K Prateek Nayak" data-subject="Re: [PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline"><details class="reply-thread"><summary>K Prateek Nayak — Re: [PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline <span class="count-badge">2</span></summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#6c757d">K</span>
     <span class="author">K Prateek Nayak</span>
     <span class="tag" style="background:#6c757d">PATCH摘要</span>
     <span class="date">Thu, 5 Oct 2023 11:26:07 +0530</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-91')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hello Daniel,</pre></div><div class="pg-spacer"></div>
@@ -7447,12 +7597,13 @@ Thanks and Regards,
 Prateek</pre></div><div class="pg-spacer"></div>
 </div>
 </div>
-<div class="replies"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline</summary><div class="email-card">
+<div class="replies"><div class="email-node" id="email-node-58" data-author="Daniel Jordan" data-subject="Re: [PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline"><details class="reply-thread"><summary>Daniel Jordan — Re: [PATCH] sched/fair: Preserve PLACE_DEADLINE_INITIAL deadline</summary><div class="email-card">
   <div class="email-header">
     <span class="avatar" style="background:#fd7e14">D</span>
     <span class="author">Daniel Jordan</span>
     <span class="tag" style="background:#fd7e14">概述/数据</span>
     <span class="date">Fri, 6 Oct 2023 12:35:19 -0400</span>
+    <button class="focus-btn" onclick="focusEmail('email-node-58')" title="聚焦此邮件（全宽显示）">&#128269;</button>
   </div>
   <div class="para-grid">
 <div class="pg-left"><pre>Hi Prateek,</pre></div><div class="pg-spacer"></div>
@@ -7467,13 +7618,52 @@ Prateek</pre></div><div class="pg-spacer"></div>
 <div class="pg-cell"><pre>Huh, numbers do seem a bit outside the noise.  Doesn&#x27;t hackbench only
 fork at the beginning?  I glanced at perf messaging source just now, but
 not sure if you use that version.  Anyway, I wouldn&#x27;t expect this patch
-to have much of an effect in that case.</pre></div><div class="pg-cell pg-cn"><pre>嗯，数字似乎有点脱离噪音。  hackbench不是一开始就只fork吗？  我刚才浏览了 perf messages 源，但不确定你是否使用该版本。  无论如何，我不希望这个补丁在这种情况下产生太大的效果。</pre></div>
+to have much of an effect in that case.</pre></div><div class="pg-cell pg-cn"><pre>嗯，数字似乎有点脱离噪音。  hackbench不是一开始就只fork吗？  我刚才浏览了 perf messages 源，但不确定你是否使用该版本。  无论如何，我不希望这个补丁在这种情况下产生太大的影响。</pre></div>
 </div>
 </div>
-</details></div></details></div>
+</details></div></div></details></div></div></div>
 </div>
 
+</div><!-- .page-content -->
 
+<script>
+function focusEmail(nodeId) {
+  var node = document.getElementById(nodeId);
+  if (!node) return;
+  // 记录滚动位置
+  window._focusPrevScroll = window.scrollY;
+  // 克隆目标节点到聚焦容器
+  var container = document.getElementById('focusContainer');
+  container.innerHTML = '';
+  var clone = node.cloneNode(true);
+  // 移除克隆中的 email-node id 避免冲突
+  clone.removeAttribute('id');
+  // 展开所有折叠的 details
+  clone.querySelectorAll('details').forEach(function(d){ d.open = true; });
+  container.appendChild(clone);
+  container.classList.add('active');
+  // 隐藏主内容
+  document.body.classList.add('focusing');
+  // 显示面包屑
+  var bar = document.getElementById('focusBar');
+  var bc = document.getElementById('focusBreadcrumb');
+  var author = node.getAttribute('data-author') || '';
+  var subject = node.getAttribute('data-subject') || '';
+  bc.textContent = author + ' — ' + subject;
+  bar.classList.add('active');
+  window.scrollTo(0, 0);
+}
+function unfocusEmail() {
+  document.body.classList.remove('focusing');
+  var container = document.getElementById('focusContainer');
+  container.innerHTML = '';
+  container.classList.remove('active');
+  var bar = document.getElementById('focusBar');
+  bar.classList.remove('active');
+  if (window._focusPrevScroll !== undefined) {
+    window.scrollTo(0, window._focusPrevScroll);
+  }
+}
 </script>
 </body>
 </html>

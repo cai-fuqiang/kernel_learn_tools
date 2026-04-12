@@ -3,12 +3,14 @@ Translator - 多后端翻译模块
 支持：
   - api    : 直接调用 OpenAI 兼容 HTTP API（OpenAI / DeepSeek / Kimi / 其他）
   - openclaw: 调用本地 OpenClaw CLI（需要已安装 openclaw）
+  - google : Google 翻译（免费，支持代理）
+  - youdao : 有道翻译（免费，支持代理）
 """
 
 import logging
 import subprocess
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib import request as urllib_request
 from urllib.error import URLError
 import json
@@ -16,6 +18,21 @@ import json
 from .config import OPENCLAW_CONFIG
 
 logger = logging.getLogger(__name__)
+
+
+def _build_opener(proxy: Optional[str] = None) -> urllib_request.OpenerDirector:
+    """构建 urllib opener，可选代理支持（不影响全局设置）"""
+    handlers = []
+    if proxy:
+        proxy_url = proxy if "://" in proxy else f"http://{proxy}"
+        handlers.append(urllib_request.ProxyHandler({
+            "http":  proxy_url,
+            "https": proxy_url,
+        }))
+    else:
+        # 不使用代理，显式传空 handler 避免从环境变量获取
+        handlers.append(urllib_request.ProxyHandler({}))
+    return urllib_request.build_opener(*handlers)
 
 
 TRANSLATE_PROMPT = """请将以下英文邮件内容翻译为中文，要求：
@@ -38,9 +55,12 @@ TRANSLATE_PROMPT = """请将以下英文邮件内容翻译为中文，要求：
 class BaseTranslator:
     """翻译器基类，子类只需实现 _call(prompt) -> (text, error)"""
 
-    def __init__(self, max_retries: int = 3, batch_size: int = 5):
+    def __init__(self, max_retries: int = 3, batch_size: int = 5,
+                 proxy: Optional[str] = None):
         self.max_retries = max_retries
         self.batch_size  = batch_size
+        self.proxy       = proxy
+        self._opener     = _build_opener(proxy)
 
     def translate_email(self, email_info: Dict) -> Dict:
         result  = dict(email_info)
@@ -133,7 +153,7 @@ class APITranslator(BaseTranslator):
     def __init__(self, api_key: str, model: str = "",
                  base_url: str = "", provider: str = "openai",
                  timeout: int = 60, max_retries: int = 3,
-                 batch_size: int = 5):
+                 batch_size: int = 5, proxy: str = None):
         """
         Args:
             api_key:   API 密钥
@@ -141,8 +161,9 @@ class APITranslator(BaseTranslator):
             base_url:  API 基础 URL，留空则使用 preset 默认值
             provider:  预设名称 openai/deepseek/kimi/siliconflow/aliyun
             timeout:   请求超时秒数
+            proxy:     代理地址（如 127.0.0.1:7897），仅翻译请求使用
         """
-        super().__init__(max_retries=max_retries, batch_size=batch_size)
+        super().__init__(max_retries=max_retries, batch_size=batch_size, proxy=proxy)
         preset_url, preset_model = self.PRESETS.get(provider, self.PRESETS["openai"])
         self.base_url  = (base_url  or preset_url).rstrip("/")
         self.model     = model      or preset_model
@@ -168,7 +189,7 @@ class APITranslator(BaseTranslator):
         )
 
         try:
-            with urllib_request.urlopen(req, timeout=self.timeout) as resp:
+            with self._opener.open(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
                 text = body["choices"][0]["message"]["content"].strip()
                 return text, ""
@@ -189,8 +210,8 @@ class OpenClawTranslator(BaseTranslator):
 
     def __init__(self, model: str = "kimi", executable: str = "",
                  timeout: int = 300, max_retries: int = 3,
-                 batch_size: int = 5):
-        super().__init__(max_retries=max_retries, batch_size=batch_size)
+                 batch_size: int = 5, proxy: str = None):
+        super().__init__(max_retries=max_retries, batch_size=batch_size, proxy=proxy)
         cfg = OPENCLAW_CONFIG
         self.model      = model
         self.executable = executable or cfg.get("executable", "openclaw")
@@ -236,8 +257,8 @@ class GoogleTranslator(BaseTranslator):
 
     def __init__(self, source: str = "en", target: str = "zh-CN",
                  timeout: int = 30, max_retries: int = 3,
-                 batch_size: int = 5):
-        super().__init__(max_retries=max_retries, batch_size=batch_size)
+                 batch_size: int = 5, proxy: str = None):
+        super().__init__(max_retries=max_retries, batch_size=batch_size, proxy=proxy)
         self.source  = source
         self.target  = target
         self.timeout = timeout
@@ -287,7 +308,7 @@ class GoogleTranslator(BaseTranslator):
             headers={"User-Agent": "Mozilla/5.0"},
         )
         try:
-            with urllib_request.urlopen(req, timeout=self.timeout) as resp:
+            with self._opener.open(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 # data[0] 是句子翻译列表，每项 [译文, 原文, ...]
                 translated = "".join(
@@ -333,8 +354,8 @@ class YoudaoTranslator(BaseTranslator):
 
     def __init__(self, source: str = "EN", target: str = "zh-CHS",
                  timeout: int = 30, max_retries: int = 3,
-                 batch_size: int = 5):
-        super().__init__(max_retries=max_retries, batch_size=batch_size)
+                 batch_size: int = 5, proxy: str = None):
+        super().__init__(max_retries=max_retries, batch_size=batch_size, proxy=proxy)
         self.source  = source
         self.target  = target
         self.timeout = timeout
@@ -392,7 +413,7 @@ class YoudaoTranslator(BaseTranslator):
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, timeout=self.timeout) as resp:
+            with self._opener.open(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 # 正常响应: {"translateResult": [[{"tgt": "..."}]], ...}
                 lines = data.get("translateResult", [])
