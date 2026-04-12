@@ -38,9 +38,49 @@ from typing import List, Tuple, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 from email_translator.translator import create_translator, BaseTranslator
+from email_translator.translation_cache import TranslationCache
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+class CachedTranslator:
+    """翻译器缓存包装：先查缓存，未命中才调用真实翻译"""
+
+    def __init__(self, translator: BaseTranslator, cache: TranslationCache, backend: str):
+        self._translator = translator
+        self._cache = cache
+        self._backend = backend
+
+    def translate_email(self, email_info: dict) -> dict:
+        """包装 translate_email，对 body 做缓存"""
+        body = email_info.get("body", "")
+        if body:
+            cached = self._cache.get(self._backend, body)
+            if cached is not None:
+                result = dict(email_info)
+                result["subject_cn"] = ""
+                result["body_cn"] = cached
+                return result
+        result = self._translator.translate_email(email_info)
+        body_cn = result.get("body_cn", "")
+        if body and body_cn and "translation_error" not in result:
+            self._cache.put(self._backend, body, body_cn)
+        return result
+
+    def translate_text(self, text: str):
+        """包装 translate_text，对文本做缓存"""
+        if text:
+            cached = self._cache.get(self._backend, text)
+            if cached is not None:
+                return cached, ""
+        translated, error = self._translator.translate_text(text)
+        if text and translated and not error:
+            self._cache.put(self._backend, text, translated)
+        return translated, error
+
+    def __getattr__(self, name):
+        return getattr(self._translator, name)
 
 
 # ─── 解析 context_full.txt 的各区段 ──────────────────────────────────────────
@@ -1731,6 +1771,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="只解析不翻译")
     parser.add_argument("--proxy", default="", help="代理地址（如 127.0.0.1:7897），仅翻译请求使用")
     parser.add_argument("--workers", type=int, default=1, help="并行翻译线程数（默认 1，建议 4-8）")
+    parser.add_argument("--no-cache", action="store_true", help="禁用翻译缓存（默认启用缓存）")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -1778,6 +1819,16 @@ def main():
         )
     else:
         translator = create_translator(args.backend, proxy=proxy)
+
+    # 包装翻译缓存
+    if not args.no_cache:
+        cache = TranslationCache()
+        translator = CachedTranslator(translator, cache, args.backend)
+        cache_size = cache.size()
+        if cache_size > 0:
+            print(f"  翻译缓存: {cache_size} 条已缓存")
+    else:
+        cache = None
 
     translated = {}
     cm = commit.get("commit_message", "")
@@ -1838,6 +1889,10 @@ def main():
                     print(f"  [{done}/{len(tasks)}] {tag} {em.get('subject', '')[:50]}")
 
     print(f"  翻译完成: {done} 封, 跳过: {skipped} 封")
+    if cache is not None:
+        stats = cache.stats()
+        if stats.get("total", 0) > 0:
+            print(f"  缓存统计: 命中 {stats['hits']}, 未命中 {stats['misses']}, 命中率 {stats['hit_rate']}")
 
     # 翻译 diff 中的注释
     print("  翻译 diff 注释...")
