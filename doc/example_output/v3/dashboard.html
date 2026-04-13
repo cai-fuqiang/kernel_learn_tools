@@ -1,243 +1,4 @@
-#!/usr/bin/env python3
-"""build_dashboard.py — 扫描 data/ 目录，生成自包含 Dashboard HTML
-
-用法:
-    python build_dashboard.py              # 扫描 data/ 并生成 dashboard.html
-    python build_dashboard.py -o /tmp/d.html  # 指定输出路径
-"""
-import argparse
-import json
-import os
-import re
-import sys
-from datetime import datetime
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
-from email_translator.config import OUTPUT_DIR, EMAILS_DIR
-
-# ─── 数据扫描与元数据提取 ──────────────────────────────────────────────────────
-
-def scan_output_dir(output_dir: Path) -> list:
-    """扫描 data/output/ 下所有产物文件，返回 (stem, ext, path, size_kb) 列表"""
-    results = []
-    if not output_dir.exists():
-        return results
-    for f in sorted(output_dir.iterdir()):
-        if f.is_file() and f.name != "dashboard.html":
-            results.append({
-                "stem": f.stem,
-                "ext": f.suffix,
-                "path": str(f),
-                "relpath": f.name,
-                "size_kb": f.stat().st_size // 1024,
-                "mtime": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds"),
-            })
-    return results
-
-
-def scan_emails_dir(emails_dir: Path) -> list:
-    """扫描 data/emails/ 下原始邮件 JSON"""
-    results = []
-    if not emails_dir.exists():
-        return results
-    for f in sorted(emails_dir.iterdir()):
-        if f.is_file() and f.suffix == ".json":
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                email_count = len(data) if isinstance(data, list) else 0
-            except Exception:
-                email_count = 0
-            results.append({
-                "stem": f.stem,
-                "path": str(f),
-                "relpath": "../emails/" + f.name,
-                "size_kb": f.stat().st_size // 1024,
-                "email_count": email_count,
-                "mtime": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds"),
-            })
-    return results
-
-
-def extract_metadata_from_html(html_path: Path) -> dict:
-    """从 _translated.html 文件头部快速提取元数据（不解析全文）"""
-    meta = {}
-    try:
-        # 只读前 8KB
-        head = html_path.read_text(encoding="utf-8", errors="ignore")[:8192]
-        # title
-        m = re.search(r"<title>(.*?)</title>", head)
-        if m:
-            meta["subject"] = m.group(1).strip()
-        # source-hash
-        m = re.search(r'content="([a-f0-9]+)"', head)
-        if m:
-            meta["source_hash"] = m.group(1)
-        # 统计 email-node 数量 (需要读更多)
-        full = html_path.read_text(encoding="utf-8", errors="ignore")
-        meta["email_count"] = full.count('class="email-node"')
-        meta["thread_count"] = full.count('class="thread-title"')
-        # 提取所有作者
-        authors = set(re.findall(r'data-author="([^"]+)"', full))
-        meta["authors"] = sorted(authors)
-        meta["participant_count"] = len(authors)
-    except Exception:
-        pass
-    return meta
-
-
-def extract_metadata_from_context(txt_path: Path) -> dict:
-    """从 context_full.txt 头部提取 commit 元数据"""
-    meta = {}
-    try:
-        head = txt_path.read_text(encoding="utf-8", errors="ignore")[:4096]
-        for line in head.splitlines():
-            if line.startswith("Commit:"):
-                meta["commit_hash"] = line.split(":", 1)[1].strip()[:12]
-            elif line.startswith("Author:"):
-                meta["author"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Date:"):
-                meta["date"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Subject:"):
-                meta["subject"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Subsystem:"):
-                meta["subsystem"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Patchset:"):
-                meta["patchset"] = line.split(":", 1)[1].strip()
-        # 邮件统计
-        m = re.search(r"原始 (\d+) 封", head)
-        if m:
-            meta["raw_email_count"] = int(m.group(1))
-        m = re.search(r"保留 (\d+) 封", head)
-        if m:
-            meta["kept_email_count"] = int(m.group(1))
-    except Exception:
-        pass
-    return meta
-
-
-def _guess_commit_hash(stem: str) -> str:
-    """从文件名推断 commit hash（如 d07f09a1f99c_translated → d07f09a1f99c）"""
-    m = re.match(r"([0-9a-f]{8,12})", stem)
-    return m.group(1) if m else ""
-
-
-def correlate_artifacts(output_files: list, email_files: list) -> list:
-    """关联同一 commit 的多种产物，返回结构化报告列表"""
-    # 按 commit hash 分组
-    groups = {}  # hash -> {artifacts}
-
-    for f in output_files:
-        h = _guess_commit_hash(f["stem"])
-        if not h:
-            # 非 commit 产物（test_ 开头等），也保留
-            h = f["stem"]
-        if h not in groups:
-            groups[h] = {
-                "commit_hash": h if re.match(r"[0-9a-f]{8,12}$", h) else "",
-                "artifacts": {},
-                "meta": {},
-            }
-        if f["ext"] == ".html":
-            if "translated" in f["stem"]:
-                groups[h]["artifacts"]["translated_html"] = f
-            else:
-                groups[h]["artifacts"].setdefault("other_html", [])
-                groups[h]["artifacts"]["other_html"].append(f)
-        elif f["ext"] == ".txt":
-            groups[h]["artifacts"]["context_txt"] = f
-
-    for f in email_files:
-        # 尝试用时间戳或主题关联
-        # email JSON 文件名通常包含主题，不好直接用 hash 关联
-        # 放入一个特殊 key
-        best_match = None
-        for h, g in groups.items():
-            ctx = g["artifacts"].get("context_txt")
-            if ctx:
-                # 简单匹配：email JSON 的 stem 子串出现在 context 的 meta 中
-                ctx_meta = g.get("meta", {})
-                if ctx_meta.get("subject", "").replace(" ", "_")[:30] in f["stem"]:
-                    best_match = h
-                    break
-        if not best_match:
-            # 单独成组
-            key = f"email_{f['stem'][:30]}"
-            groups[key] = {
-                "commit_hash": "",
-                "artifacts": {"emails_json": f},
-                "meta": {},
-            }
-        else:
-            groups[best_match]["artifacts"]["emails_json"] = f
-
-    # 提取详细元数据
-    for h, g in groups.items():
-        arts = g["artifacts"]
-        if "context_txt" in arts:
-            p = Path(arts["context_txt"]["path"])
-            g["meta"].update(extract_metadata_from_context(p))
-        if "translated_html" in arts:
-            p = Path(arts["translated_html"]["path"])
-            g["meta"].update(extract_metadata_from_html(p))
-        if "emails_json" in arts:
-            g["meta"].setdefault("email_count", arts["emails_json"].get("email_count", 0))
-
-    # 构建最终列表
-    reports = []
-    for h, g in groups.items():
-        arts = g["artifacts"]
-        meta = g["meta"]
-
-        # 确定状态
-        if "translated_html" in arts:
-            status = "translated"
-            status_icon = "\U0001f4dd"
-        elif "context_txt" in arts:
-            status = "packed"
-            status_icon = "\U0001f4e6"
-        elif "emails_json" in arts:
-            status = "raw"
-            status_icon = "\U0001f4e7"
-        else:
-            status = "other"
-            status_icon = "\U0001f4c4"
-
-        # 主要显示文件
-        primary = (
-            arts.get("translated_html")
-            or arts.get("context_txt")
-            or arts.get("emails_json")
-            or (arts.get("other_html", [None])[0] if arts.get("other_html") else None)
-        )
-
-        reports.append({
-            "id": h,
-            "commit_hash": g["commit_hash"],
-            "subject": meta.get("subject", h),
-            "author": meta.get("author", ""),
-            "date": meta.get("date", ""),
-            "subsystem": meta.get("subsystem", ""),
-            "status": status,
-            "status_icon": status_icon,
-            "email_count": meta.get("email_count", meta.get("kept_email_count", 0)),
-            "thread_count": meta.get("thread_count", 0),
-            "participant_count": meta.get("participant_count", 0),
-            "authors": meta.get("authors", []),
-            "artifacts": {k: v if not isinstance(v, list) else v for k, v in arts.items()},
-            "primary_path": primary["relpath"] if primary else "",
-            "primary_size_kb": primary["size_kb"] if primary else 0,
-            "mtime": primary["mtime"] if primary else "",
-        })
-
-    # 按修改时间倒序
-    reports.sort(key=lambda r: r["mtime"], reverse=True)
-    return reports
-
-
-# ─── Dashboard HTML 模板 ───────────────────────────────────────────────────────
-
-DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -447,11 +208,37 @@ a:hover { text-decoration: underline; }
 </div>
 
 <div class="footer">
-  Dashboard 生成时间: <GENERATED_TIME> &mdash; 由 build_dashboard.py 自动生成
+  Dashboard 生成时间: 2026-04-13 13:14:00 &mdash; 由 build_dashboard.py 自动生成
 </div>
 
 <script>
-var REPORTS = <REPORTS_JSON>;
+var REPORTS = [
+  {
+    "id": "test_interactive_100",
+    "commit_hash": "",
+    "subject": "test_interactive_100",
+    "author": "",
+    "date": "",
+    "subsystem": "",
+    "status": "other",
+    "status_icon": "📄",
+    "email_count": 0,
+    "thread_count": 0,
+    "participant_count": 0,
+    "authors": [],
+    "artifacts": {
+      "other_html": [
+        {
+          "relpath": "test_interactive_100.html",
+          "size_kb": 471
+        }
+      ]
+    },
+    "primary_path": "test_interactive_100.html",
+    "primary_size_kb": 471,
+    "mtime": "2026-04-13T13:11:14"
+  }
+];
 
 var SUBSYS_COLORS = {
   'sched': '#58a6ff', 'mm': '#f0883e', 'fs': '#a371f7', 'net': '#3fb950',
@@ -619,73 +406,4 @@ function toggleTheme() {
 })();
 </script>
 </body>
-</html>"""
-
-
-# ─── 生成 Dashboard ────────────────────────────────────────────────────────────
-
-def generate_dashboard(output_dir: Path = None, emails_dir: Path = None,
-                       out_path: Path = None) -> Path:
-    """扫描数据目录并生成 dashboard.html，返回输出路径"""
-    output_dir = output_dir or OUTPUT_DIR
-    emails_dir = emails_dir or EMAILS_DIR
-    out_path = out_path or (output_dir / "dashboard.html")
-
-    print(f"[Dashboard] 扫描 {output_dir} ...")
-    output_files = scan_output_dir(output_dir)
-    print(f"  产物文件: {len(output_files)}")
-
-    print(f"[Dashboard] 扫描 {emails_dir} ...")
-    email_files = scan_emails_dir(emails_dir)
-    print(f"  邮件 JSON: {len(email_files)}")
-
-    print(f"[Dashboard] 关联产物...")
-    reports = correlate_artifacts(output_files, email_files)
-    print(f"  报告数: {len(reports)}")
-
-    # 序列化为 JSON（清理不可序列化的内容）
-    reports_clean = []
-    for r in reports:
-        rc = dict(r)
-        # artifacts 中只保留 relpath 和 size_kb
-        arts = {}
-        for k, v in rc.get("artifacts", {}).items():
-            if isinstance(v, dict):
-                arts[k] = {"relpath": v.get("relpath", ""), "size_kb": v.get("size_kb", 0)}
-            elif isinstance(v, list):
-                arts[k] = [{"relpath": x.get("relpath", ""), "size_kb": x.get("size_kb", 0)} for x in v]
-        rc["artifacts"] = arts
-        reports_clean.append(rc)
-
-    reports_json = json.dumps(reports_clean, ensure_ascii=False, indent=2)
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    html = DASHBOARD_TEMPLATE
-    html = html.replace("<REPORTS_JSON>", reports_json)
-    html = html.replace("<GENERATED_TIME>", now_str)
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html, encoding="utf-8")
-    print(f"[Dashboard] 已生成: {out_path}  ({len(html) // 1024} KB)")
-    return out_path
-
-
-# ─── CLI 入口 ──────────────────────────────────────────────────────────────────
-
-def main():
-    parser = argparse.ArgumentParser(description="生成 Kernel Email Dashboard")
-    parser.add_argument("-o", "--output", help="输出路径（默认 data/output/dashboard.html）")
-    parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="产物目录")
-    parser.add_argument("--emails-dir", default=str(EMAILS_DIR), help="邮件 JSON 目录")
-    args = parser.parse_args()
-
-    out = Path(args.output) if args.output else None
-    generate_dashboard(
-        output_dir=Path(args.output_dir),
-        emails_dir=Path(args.emails_dir),
-        out_path=out,
-    )
-
-
-if __name__ == "__main__":
-    main()
+</html>
