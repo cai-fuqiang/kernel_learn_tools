@@ -341,6 +341,7 @@ def main():
                         help="本地邮件 JSON 文件路径（Lore 无法访问时的降级方案）")
     parser.add_argument("--output", help="输出文件路径（默认自动生成）")
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="输出目录")
+    parser.add_argument("--no-dashboard", action="store_true", help="跳过 Dashboard 重建")
     args = parser.parse_args()
 
     print()
@@ -420,6 +421,14 @@ def main():
     print(f"\n  # 直接传给 OpenClaw：")
     print(f"  openclaw chat --file {out_path}")
     print()
+
+    # 重建 Dashboard
+    if not args.no_dashboard:
+        try:
+            from build_dashboard import generate_dashboard
+            generate_dashboard()
+        except Exception as e:
+            print(f"  [Dashboard] 重建失败（可忽略）: {e}")
 
 
 if __name__ == "__main__":

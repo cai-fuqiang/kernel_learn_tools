@@ -101,10 +101,10 @@
 
 ## 六、新增规划
 
-### 14. 多邮件缓存可视化阅读器（PLAN-008）
-- [ ] `build_dashboard.py` 数据收集与元数据提取
-- [ ] Dashboard HTML 生成（自包含单文件，内嵌 JSON + JS 交互）
-- [ ] 集成到 main.py / translate_context.py / pack_for_openclaw.py 工作流
+### 14. 多邮件缓存可视化阅读器（PLAN-008）✅
+- [x] `build_dashboard.py` 数据收集与元数据提取
+- [x] Dashboard HTML 生成（自包含单文件，内嵌 JSON + JS 交互）
+- [x] 集成到 main.py / translate_context.py / pack_for_openclaw.py 工作流
 
 ### 15. 分析报告质量提升（PLAN-009）
 - [ ] 模板结构增强：Patchset 全景、相关 Commit 索引、讨论点扩展
@@ -126,5 +126,5 @@
 | P1 | 3. 增量翻译支持 | 🔲 待开始 | 1d |
 | P2 | 6. HTML 报告交互增强 | ✅ 已完成 | - |
 | P2 | 9. translate_context.py 拆分重构 | 🔲 待开始 | 2d |
-| P2 | 14. Dashboard 阅读器 | 🔲 待开始 | 2-3d |
+| P2 | 14. Dashboard 阅读器 | ✅ 已完成 | - |
 | P3 | 8/10/11/12/13 其余优化 | 🔲 待开始 | 各0.5-1d |

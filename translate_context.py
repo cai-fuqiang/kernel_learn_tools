@@ -2203,6 +2203,7 @@ def main():
     parser.add_argument("--workers", type=int, default=1, help="并行翻译线程数（默认 1，建议 4-8）")
     parser.add_argument("--no-cache", action="store_true", help="禁用翻译缓存（默认启用缓存）")
     parser.add_argument("--force", action="store_true", help="强制重新翻译，忽略已有输出文件")
+    parser.add_argument("--no-dashboard", action="store_true", help="跳过 Dashboard 重建")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -2394,6 +2395,14 @@ def main():
     out_path.write_text(output, encoding="utf-8")
     print(f"\n  已保存: {out_path}")
     print(f"  大小: {len(output) // 1024} KB  |  {len(output.splitlines())} 行")
+
+    # 重建 Dashboard
+    if not args.no_dashboard:
+        try:
+            from build_dashboard import generate_dashboard
+            generate_dashboard()
+        except Exception as e:
+            print(f"  [Dashboard] 重建失败（可忽略）: {e}")
 
 
 def _print_tree(node: ThreadNode, indent: int = 0):

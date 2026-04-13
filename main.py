@@ -90,6 +90,7 @@ def main():
     parser.add_argument('--output-dir', default=OUTPUT_DIR, help='输出目录')
     parser.add_argument('--simple', action='store_true', help='生成简化版报告（无翻译）')
     parser.add_argument('--save-emails', action='store_true', help='保存原始邮件数据')
+    parser.add_argument('--no-dashboard', action='store_true', help='跳过 Dashboard 重建')
     
     args = parser.parse_args()
     
@@ -227,6 +228,14 @@ def main():
             )
         
         logger.info("报告生成完成: %s", filepath)
+
+        # 重建 Dashboard
+        if not args.no_dashboard:
+            try:
+                from build_dashboard import generate_dashboard
+                generate_dashboard()
+            except Exception as e:
+                logger.debug("Dashboard 重建失败（可忽略）: %s", e)
 
         # 如果是 commit 模式，在报告末尾追加 commit 摘要
         if commit_info:
