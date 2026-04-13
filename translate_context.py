@@ -28,6 +28,7 @@
     python translate_context.py data/output/xxxx_context_full.txt --dry-run
 """
 import argparse
+import hashlib
 import html as html_module
 import logging
 import re
@@ -794,6 +795,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="source-hash" content="{source_hash}">
 <title>{title}</title>
 <style>
 :root {{
@@ -1673,6 +1675,7 @@ def _html_email_node(
 def generate_html(
     commit: dict, diff: str, email_header: str,
     emails: List[dict], checklist: str, translated_bodies: dict,
+    source_hash: str = "",
 ) -> str:
     """生成自包含 HTML 文档，邮件按线程树状组织"""
     subject = _esc(commit.get("subject", "Unknown Commit"))
@@ -1740,6 +1743,7 @@ def generate_html(
 
     return _HTML_TEMPLATE.format(
         title=subject,
+        source_hash=source_hash,
         commit_rows=commit_rows,
         cm_html=cm_html,
         diff_html=diff_html,
@@ -1772,6 +1776,7 @@ def main():
     parser.add_argument("--proxy", default="", help="代理地址（如 127.0.0.1:7897），仅翻译请求使用")
     parser.add_argument("--workers", type=int, default=1, help="并行翻译线程数（默认 1，建议 4-8）")
     parser.add_argument("--no-cache", action="store_true", help="禁用翻译缓存（默认启用缓存）")
+    parser.add_argument("--force", action="store_true", help="强制重新翻译，忽略已有输出文件")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -1781,6 +1786,33 @@ def main():
 
     text = input_path.read_text(encoding="utf-8")
     print(f"读取: {input_path}  ({len(text) // 1024} KB)")
+
+    # 计算输入文件 hash，用于增量翻译检测
+    source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    # 推算输出路径（提前计算，用于增量检测）
+    fmt = args.format
+    ext = ".html" if fmt == "html" else ".md"
+    if args.output:
+        out_path = Path(args.output)
+    else:
+        stem = input_path.stem.replace("_context_full", "").replace("_full", "")
+        out_path = input_path.parent / f"{stem}_translated{ext}"
+
+    # 增量翻译检测：如果输出文件已存在且 source hash 匹配，跳过
+    if not args.force and not args.dry_run and out_path.exists():
+        try:
+            existing = out_path.read_text(encoding="utf-8")
+            m = re.search(r'<meta\s+name="source-hash"\s+content="([^"]+)"', existing)
+            if m and m.group(1) == source_hash:
+                print(f"\n  输出文件已是最新（source hash 匹配: {source_hash}），跳过翻译")
+                print(f"  如需强制重新翻译，请使用 --force 参数")
+                print(f"  已有输出: {out_path}")
+                return
+            else:
+                print(f"  检测到已有输出，但输入已变更，将重新翻译")
+        except Exception:
+            pass
 
     # 解析
     print("\n[1/3] 解析文档结构...")
@@ -1925,21 +1957,13 @@ def main():
     print(f"  diff 注释翻译完成: {diff_done + (1 if diff else 0)} 个")
 
     # 生成
-    fmt = args.format
-    ext = ".html" if fmt == "html" else ".md"
     print(f"\n[3/3] 生成 {fmt.upper()} 文档...")
 
     if fmt == "html":
-        output = generate_html(commit, diff, email_header, emails, checklist, translated)
+        output = generate_html(commit, diff, email_header, emails, checklist, translated, source_hash=source_hash)
     else:
-        output = generate_html(commit, diff, email_header, emails, checklist, translated)
+        output = generate_html(commit, diff, email_header, emails, checklist, translated, source_hash=source_hash)
         # 未来可恢复旧 generate_markdown，目前统一用 HTML
-
-    if args.output:
-        out_path = Path(args.output)
-    else:
-        stem = input_path.stem.replace("_context_full", "").replace("_full", "")
-        out_path = input_path.parent / f"{stem}_translated{ext}"
 
     out_path.write_text(output, encoding="utf-8")
     print(f"\n  已保存: {out_path}")
