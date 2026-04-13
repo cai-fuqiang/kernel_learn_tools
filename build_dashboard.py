@@ -625,19 +625,42 @@ function toggleTheme() {
 # ─── 生成 Dashboard ────────────────────────────────────────────────────────────
 
 def generate_dashboard(output_dir: Path = None, emails_dir: Path = None,
-                       out_path: Path = None) -> Path:
-    """扫描数据目录并生成 dashboard.html，返回输出路径"""
-    output_dir = output_dir or OUTPUT_DIR
-    emails_dir = emails_dir or EMAILS_DIR
-    out_path = out_path or (output_dir / "dashboard.html")
+                       out_path: Path = None, scan_dir: Path = None) -> Path:
+    """扫描数据目录并生成 dashboard.html，返回输出路径
+    
+    Args:
+        scan_dir: 如果指定，则扫描此目录（而非默认的 data/ 目录）
+    """
+    if scan_dir:
+        # 指定扫描目录模式：只扫描该目录下的文件
+        scan_path = Path(scan_dir)
+        print(f"[Dashboard] 扫描指定目录 {scan_path} ...")
+        output_files = []
+        for f in sorted(scan_path.iterdir()):
+            if f.is_file() and f.suffix in (".html", ".txt"):
+                output_files.append({
+                    "stem": f.stem,
+                    "ext": f.suffix,
+                    "path": str(f),
+                    "relpath": f.name,  # 相对当前目录
+                    "size_kb": f.stat().st_size // 1024,
+                    "mtime": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds"),
+                })
+        email_files = []  # 指定目录模式下不扫描 emails
+        print(f"  找到 {len(output_files)} 个产物文件")
+    else:
+        # 默认模式：扫描 data/ 目录
+        output_dir = output_dir or OUTPUT_DIR
+        emails_dir = emails_dir or EMAILS_DIR
+        out_path = out_path or (output_dir / "dashboard.html")
 
-    print(f"[Dashboard] 扫描 {output_dir} ...")
-    output_files = scan_output_dir(output_dir)
-    print(f"  产物文件: {len(output_files)}")
+        print(f"[Dashboard] 扫描 {output_dir} ...")
+        output_files = scan_output_dir(output_dir)
+        print(f"  产物文件: {len(output_files)}")
 
-    print(f"[Dashboard] 扫描 {emails_dir} ...")
-    email_files = scan_emails_dir(emails_dir)
-    print(f"  邮件 JSON: {len(email_files)}")
+        print(f"[Dashboard] 扫描 {emails_dir} ...")
+        email_files = scan_emails_dir(emails_dir)
+        print(f"  邮件 JSON: {len(email_files)}")
 
     print(f"[Dashboard] 关联产物...")
     reports = correlate_artifacts(output_files, email_files)
@@ -677,13 +700,15 @@ def main():
     parser.add_argument("-o", "--output", help="输出路径（默认 data/output/dashboard.html）")
     parser.add_argument("--output-dir", default=str(OUTPUT_DIR), help="产物目录")
     parser.add_argument("--emails-dir", default=str(EMAILS_DIR), help="邮件 JSON 目录")
+    parser.add_argument("--scan-dir", help="指定扫描目录（用于示例/测试）")
     args = parser.parse_args()
 
     out = Path(args.output) if args.output else None
     generate_dashboard(
-        output_dir=Path(args.output_dir),
-        emails_dir=Path(args.emails_dir),
+        output_dir=Path(args.output_dir) if not args.scan_dir else None,
+        emails_dir=Path(args.emails_dir) if not args.scan_dir else None,
         out_path=out,
+        scan_dir=args.scan_dir,
     )
 
 
