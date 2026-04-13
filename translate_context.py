@@ -854,12 +854,128 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   --bg: #0d1117; --surface: #161b22; --border: #30363d;
   --text: #e6edf3; --text-muted: #8b949e; --accent: #58a6ff;
   --red: #f85149; --orange: #d29922; --green: #3fb950; --gray: #6c757d;
+  --sidebar-width: 280px;
+}}
+/* 亮色主题 */
+body.light-theme {{
+  --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de;
+  --text: #1f2328; --text-muted: #656d76; --accent: #0969da;
+  --red: #cf222e; --orange: #bf8700; --green: #1a7f37; --gray: #6c757d;
 }}
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 body {{
   font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg); color: var(--text);
   line-height: 1.6; max-width: 1400px; margin: 0 auto; padding: 24px;
+  transition: background 0.3s, color 0.3s;
+}}
+
+/* ── 工具栏 ── */
+.toolbar {{
+  position: sticky; top: 0; z-index: 90;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 8px 16px; margin: -24px -24px 16px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}}
+.toolbar .search-box {{
+  flex: 1; min-width: 200px; max-width: 400px; position: relative;
+}}
+.toolbar .search-box input {{
+  width: 100%; padding: 6px 32px 6px 10px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text);
+  outline: none; transition: border-color 0.2s;
+}}
+.toolbar .search-box input:focus {{ border-color: var(--accent); }}
+.toolbar .search-box .clear-btn {{
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  font-size: 14px; display: none; padding: 0 2px;
+}}
+.toolbar .search-box input:not(:placeholder-shown) ~ .clear-btn {{ display: block; }}
+.toolbar .filter-group {{
+  display: flex; align-items: center; gap: 6px;
+}}
+.toolbar select {{
+  padding: 5px 8px; font-size: 12px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer;
+}}
+.toolbar .theme-toggle {{
+  margin-left: auto; background: none; border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px; font-size: 13px;
+  color: var(--text-muted); cursor: pointer; white-space: nowrap;
+}}
+.toolbar .theme-toggle:hover {{ background: var(--border); color: var(--text); }}
+.toolbar .sidebar-toggle {{
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; font-size: 13px; color: var(--text-muted); cursor: pointer;
+}}
+.toolbar .sidebar-toggle:hover {{ background: var(--border); color: var(--text); }}
+
+/* ── 侧边栏目录 ── */
+.sidebar-overlay {{
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4); z-index: 199;
+  display: none;
+}}
+.sidebar-overlay.active {{ display: block; }}
+.sidebar {{
+  position: fixed; top: 0; right: -320px; width: var(--sidebar-width);
+  height: 100vh; background: var(--surface); border-left: 1px solid var(--border);
+  z-index: 200; padding: 16px; overflow-y: auto;
+  transition: right 0.25s ease;
+  box-shadow: -4px 0 16px rgba(0,0,0,0.3);
+}}
+.sidebar.active {{ right: 0; }}
+.sidebar h3 {{
+  font-size: 14px; color: var(--accent); margin-bottom: 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}}
+.sidebar .toc-item {{
+  display: block; padding: 6px 8px; font-size: 13px; margin: 2px 0;
+  border-radius: 4px; color: var(--text); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer; transition: background 0.15s;
+}}
+.sidebar .toc-item:hover {{ background: var(--border); }}
+.sidebar .toc-item.active {{ background: rgba(88,166,255,0.15); color: var(--accent); }}
+.sidebar .toc-item .toc-count {{
+  font-size: 11px; color: var(--text-muted); margin-left: 4px;
+}}
+.sidebar .close-sidebar {{
+  position: absolute; top: 12px; right: 12px;
+  background: none; border: none; color: var(--text-muted); font-size: 18px;
+  cursor: pointer;
+}}
+.sidebar .close-sidebar:hover {{ color: var(--text); }}
+
+/* ── 键盘导航高亮 ── */
+.email-node.kb-active > .email-card,
+.email-node.kb-active > details > .email-card {{
+  outline: 2px solid var(--accent); outline-offset: -2px;
+  border-radius: 8px;
+}}
+/* 搜索匹配高亮 */
+.email-node.search-hidden {{ display: none; }}
+.search-no-result {{
+  text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px;
+  display: none;
+}}
+.search-no-result.active {{ display: block; }}
+/* 快捷键帮助 */
+.kbd-hint {{
+  position: fixed; bottom: 16px; right: 16px; z-index: 80;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 16px; font-size: 12px;
+  color: var(--text-muted); box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  display: none;
+}}
+.kbd-hint.active {{ display: block; }}
+.kbd-hint kbd {{
+  display: inline-block; padding: 1px 6px; border: 1px solid var(--border);
+  border-radius: 3px; background: var(--bg); font-family: monospace;
+  font-size: 11px; margin: 0 2px;
 }}
 h1 {{ font-size: 1.6em; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }}
 h2 {{ font-size: 1.3em; margin: 28px 0 12px; color: var(--accent); }}
@@ -1067,11 +1183,52 @@ body.focusing .page-content {{ display: none; }}
 </style>
 </head>
 <body>
+<!-- 工具栏 -->
+<div class="toolbar" id="toolbar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" title="目录大纲">&#9776; 目录</button>
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="搜索邮件（作者、关键词）..." oninput="onSearchInput(this.value)">
+    <button class="clear-btn" onclick="clearSearch()">&#10005;</button>
+  </div>
+  <div class="filter-group">
+    <select id="authorFilter" onchange="applyFilters()">
+      <option value="">全部作者</option>
+    </select>
+    <select id="priorityFilter" onchange="applyFilters()">
+      <option value="">全部类型</option>
+      <option value="讨论">讨论</option>
+      <option value="概述/数据">概述/数据</option>
+      <option value="PATCH摘要">PATCH摘要</option>
+    </select>
+  </div>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">&#9728; 亮色</button>
+</div>
+
+<!-- 侧边栏 -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <button class="close-sidebar" onclick="toggleSidebar()">&#10005;</button>
+  <h3>邮件线程目录</h3>
+  <div id="tocList"></div>
+</div>
+
+<!-- 聚焦栏 -->
 <div class="focus-bar" id="focusBar">
-  <button class="back-btn" onclick="unfocusEmail()">← 返回全部</button>
+  <button class="back-btn" onclick="unfocusEmail()">&#8592; 返回全部</button>
   <span class="breadcrumb" id="focusBreadcrumb"></span>
 </div>
 <div id="focusContainer"></div>
+
+<!-- 搜索无结果提示 -->
+<div class="search-no-result" id="searchNoResult">没有找到匹配的邮件</div>
+
+<!-- 快捷键提示 -->
+<div class="kbd-hint" id="kbdHint">
+  <kbd>j</kbd>/<kbd>k</kbd> 上下浏览 &nbsp; <kbd>Enter</kbd> 展开/折叠 &nbsp;
+  <kbd>f</kbd> 聚焦 &nbsp; <kbd>/</kbd> 搜索 &nbsp; <kbd>Esc</kbd> 关闭 &nbsp;
+  <kbd>?</kbd> 帮助
+</div>
+
 <div class="page-content">
 <h1>{title}</h1>
 
@@ -1092,29 +1249,24 @@ body.focusing .page-content {{ display: none; }}
 </div><!-- .page-content -->
 
 <script>
+/* ── 聚焦视图 ── */
 function focusEmail(nodeId) {{
   var node = document.getElementById(nodeId);
   if (!node) return;
-  // 记录滚动位置
   window._focusPrevScroll = window.scrollY;
-  // 克隆目标节点到聚焦容器
   var container = document.getElementById('focusContainer');
   container.innerHTML = '';
   var clone = node.cloneNode(true);
-  // 移除克隆中的 email-node id 避免冲突
   clone.removeAttribute('id');
-  // 展开所有折叠的 details
   clone.querySelectorAll('details').forEach(function(d){{ d.open = true; }});
   container.appendChild(clone);
   container.classList.add('active');
-  // 隐藏主内容
   document.body.classList.add('focusing');
-  // 显示面包屑
   var bar = document.getElementById('focusBar');
   var bc = document.getElementById('focusBreadcrumb');
   var author = node.getAttribute('data-author') || '';
   var subject = node.getAttribute('data-subject') || '';
-  bc.textContent = author + ' — ' + subject;
+  bc.textContent = author + ' \u2014 ' + subject;
   bar.classList.add('active');
   window.scrollTo(0, 0);
 }}
@@ -1123,12 +1275,187 @@ function unfocusEmail() {{
   var container = document.getElementById('focusContainer');
   container.innerHTML = '';
   container.classList.remove('active');
-  var bar = document.getElementById('focusBar');
-  bar.classList.remove('active');
-  if (window._focusPrevScroll !== undefined) {{
-    window.scrollTo(0, window._focusPrevScroll);
+  document.getElementById('focusBar').classList.remove('active');
+  if (window._focusPrevScroll !== undefined) window.scrollTo(0, window._focusPrevScroll);
+}}
+
+/* ── 主题切换 ── */
+function toggleTheme() {{
+  var body = document.body;
+  var btn = document.getElementById('themeToggle');
+  if (body.classList.contains('light-theme')) {{
+    body.classList.remove('light-theme');
+    btn.innerHTML = '&#9728; 亮色';
+    localStorage.setItem('theme', 'dark');
+  }} else {{
+    body.classList.add('light-theme');
+    btn.innerHTML = '&#9790; 暗色';
+    localStorage.setItem('theme', 'light');
   }}
 }}
+// 初始化主题
+(function() {{
+  if (localStorage.getItem('theme') === 'light') {{
+    document.body.classList.add('light-theme');
+    document.getElementById('themeToggle').innerHTML = '&#9790; 暗色';
+  }}
+}})();
+
+/* ── 侧边栏目录 ── */
+function toggleSidebar() {{
+  document.getElementById('sidebar').classList.toggle('active');
+  document.getElementById('sidebarOverlay').classList.toggle('active');
+}}
+function buildTOC() {{
+  var tocList = document.getElementById('tocList');
+  var threads = document.querySelectorAll('.page-content .thread');
+  tocList.innerHTML = '';
+  threads.forEach(function(t, idx) {{
+    var titleEl = t.querySelector('.thread-title');
+    if (!titleEl) return;
+    var title = titleEl.textContent.replace(/\\s*\\d+\\s*$/, '').trim();
+    var count = t.querySelectorAll('.email-node').length;
+    var id = 'thread-toc-' + idx;
+    t.setAttribute('id', id);
+    var a = document.createElement('a');
+    a.className = 'toc-item';
+    a.textContent = title;
+    a.innerHTML += ' <span class="toc-count">(' + count + ')</span>';
+    a.onclick = function() {{
+      document.getElementById(id).scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+      toggleSidebar();
+    }};
+    tocList.appendChild(a);
+  }});
+}}
+
+/* ── 搜索/过滤 ── */
+var _searchTimer = null;
+function onSearchInput(val) {{
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(function() {{ applyFilters(); }}, 200);
+}}
+function clearSearch() {{
+  document.getElementById('searchInput').value = '';
+  applyFilters();
+}}
+function applyFilters() {{
+  var query = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+  var authorVal = document.getElementById('authorFilter').value;
+  var prioVal = document.getElementById('priorityFilter').value;
+  var nodes = document.querySelectorAll('.page-content .email-node');
+  var visibleCount = 0;
+
+  nodes.forEach(function(node) {{
+    var author = (node.getAttribute('data-author') || '').toLowerCase();
+    var subject = (node.getAttribute('data-subject') || '').toLowerCase();
+    var tag = (node.getAttribute('data-tag') || '');
+    var bodyText = (node.getAttribute('data-body-preview') || '').toLowerCase();
+    var show = true;
+    // 关键词过滤
+    if (query && !(author.indexOf(query) >= 0 || subject.indexOf(query) >= 0 || bodyText.indexOf(query) >= 0)) {{
+      show = false;
+    }}
+    // 作者过滤
+    if (authorVal && author.indexOf(authorVal.toLowerCase()) < 0) {{
+      show = false;
+    }}
+    // 类型过滤
+    if (prioVal && tag.indexOf(prioVal) < 0) {{
+      show = false;
+    }}
+    if (show) {{
+      node.classList.remove('search-hidden');
+      visibleCount++;
+    }} else {{
+      node.classList.add('search-hidden');
+    }}
+  }});
+
+  var noResult = document.getElementById('searchNoResult');
+  if ((query || authorVal || prioVal) && visibleCount === 0) {{
+    noResult.classList.add('active');
+  }} else {{
+    noResult.classList.remove('active');
+  }}
+}}
+function buildAuthorFilter() {{
+  var nodes = document.querySelectorAll('.page-content .email-node');
+  var authors = {{}};
+  nodes.forEach(function(n) {{
+    var a = n.getAttribute('data-author');
+    if (a) authors[a] = (authors[a] || 0) + 1;
+  }});
+  var sel = document.getElementById('authorFilter');
+  Object.keys(authors).sort().forEach(function(a) {{
+    var opt = document.createElement('option');
+    opt.value = a;
+    opt.textContent = a + ' (' + authors[a] + ')';
+    sel.appendChild(opt);
+  }});
+}}
+
+/* ── 键盘快捷键 ── */
+var _kbIdx = -1;
+function getVisibleNodes() {{
+  return Array.from(document.querySelectorAll('.page-content .email-node:not(.search-hidden)'));
+}}
+function kbNavigate(dir) {{
+  var nodes = getVisibleNodes();
+  if (!nodes.length) return;
+  // 清除旧高亮
+  if (_kbIdx >= 0 && _kbIdx < nodes.length) nodes[_kbIdx].classList.remove('kb-active');
+  _kbIdx += dir;
+  if (_kbIdx < 0) _kbIdx = 0;
+  if (_kbIdx >= nodes.length) _kbIdx = nodes.length - 1;
+  var cur = nodes[_kbIdx];
+  cur.classList.add('kb-active');
+  cur.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+}}
+function kbToggle() {{
+  var nodes = getVisibleNodes();
+  if (_kbIdx < 0 || _kbIdx >= nodes.length) return;
+  var det = nodes[_kbIdx].querySelector(':scope > details.reply-thread');
+  if (det) det.open = !det.open;
+}}
+function kbFocus() {{
+  var nodes = getVisibleNodes();
+  if (_kbIdx < 0 || _kbIdx >= nodes.length) return;
+  var id = nodes[_kbIdx].id;
+  if (id) focusEmail(id);
+}}
+document.addEventListener('keydown', function(e) {{
+  // 忽略在 input 中的按键
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {{
+    if (e.key === 'Escape') {{
+      e.target.blur();
+      e.preventDefault();
+    }}
+    return;
+  }}
+  switch(e.key) {{
+    case 'j': kbNavigate(1); e.preventDefault(); break;
+    case 'k': kbNavigate(-1); e.preventDefault(); break;
+    case 'Enter': kbToggle(); e.preventDefault(); break;
+    case 'f': kbFocus(); e.preventDefault(); break;
+    case '/':
+      document.getElementById('searchInput').focus();
+      e.preventDefault(); break;
+    case 'Escape':
+      if (document.body.classList.contains('focusing')) {{ unfocusEmail(); }}
+      else if (document.getElementById('sidebar').classList.contains('active')) {{ toggleSidebar(); }}
+      e.preventDefault(); break;
+    case '?':
+      document.getElementById('kbdHint').classList.toggle('active');
+      e.preventDefault(); break;
+  }}
+}});
+
+/* ── 初始化 ── */
+document.addEventListener('DOMContentLoaded', function() {{
+  buildTOC();
+  buildAuthorFilter();
+}});
 </script>
 </body>
 </html>"""
@@ -1744,9 +2071,15 @@ def _html_email_node(
     # 根邮件直接展开，回复用 details 折叠
     subj_esc = _esc(em.get("subject", "")[:80])
     author_esc = _esc(author)
+    tag_esc = _esc(label)
+    body_preview = _esc(text_orig[:200].replace('\n', ' ')) if text_orig else ""
+    data_attrs = (
+        f'data-author="{author_esc}" data-subject="{subj_esc}" '
+        f'data-tag="{tag_esc}" data-body-preview="{body_preview}"'
+    )
     if is_root:
         return (
-            f'<div class="email-node" id="{node_id}" data-author="{author_esc}" data-subject="{subj_esc}">'
+            f'<div class="email-node" id="{node_id}" {data_attrs}>'
             + "\n".join(card) + "\n" + children_html
             + '</div>'
         )
@@ -1756,7 +2089,7 @@ def _html_email_node(
         summary = f'{author_esc} — {subj_esc}{count_badge}'
         inner = "\n".join(card) + "\n" + children_html
         return (
-            f'<div class="email-node" id="{node_id}" data-author="{author_esc}" data-subject="{subj_esc}">'
+            f'<div class="email-node" id="{node_id}" {data_attrs}>'
             f'<details class="reply-thread">'
             f'<summary>{summary}</summary>'
             f'{inner}'
