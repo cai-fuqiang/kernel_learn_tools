@@ -41,11 +41,12 @@ _LORE_RAW_URL      = "https://lore.kernel.org/{list}/{msgid}/raw"
 _ANUBIS_PASS_URL = "/.within.website/x/cmd/anubis/api/pass-challenge"
 
 # 多个 User-Agent 轮换
+# 注意: b4 UA 会被 Anubis 直接 403，必须把浏览器 UA 放在前面
 _USER_AGENTS = [
-    "b4/0.14.2",
     "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
     " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "b4/0.14.2",
 ]
 
 
@@ -247,9 +248,28 @@ class LoreThreadFetcher:
         if resp.status_code == 200 and b"anubis_challenge" in resp.content:
             return self._handle_anubis(resp, url, session)
 
+        # ── 503 服务过载 → 指数退避重试 ──
+        if resp.status_code == 503:
+            backoff = self.delay * (attempt + 1) * 2
+            logger.warning("503 Service Unavailable，等待 %.1fs 后重试...", backoff)
+            time.sleep(backoff)
+            return None  # 让外层重试循环处理
+
         # ── 403 或其他错误 ──
         if resp.status_code == 403:
-            logger.warning("403 Forbidden — 可能是 IP 限制或 Anubis 拦截")
+            logger.info("403 Forbidden，尝试访问首页触发 Anubis 挑战...")
+            # 主动访问首页触发 Anubis 获取 cookie
+            try:
+                parsed = urlparse(url)
+                home_url = f"{parsed.scheme}://{parsed.netloc}/"
+                home_resp = session.get(home_url, timeout=self.timeout)
+                if home_resp.status_code == 200 and b"anubis_challenge" in home_resp.content:
+                    result = self._handle_anubis(home_resp, url, session)
+                    if result is not None:
+                        return result
+            except Exception as e:
+                logger.debug("首页 Anubis 触发失败: %s", e)
+            logger.warning("403 Forbidden — 无法通过 Anubis 获取 cookie")
         else:
             logger.warning("未知响应: status=%d content_type=%s",
                            resp.status_code,

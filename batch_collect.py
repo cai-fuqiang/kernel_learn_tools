@@ -172,32 +172,46 @@ def run_collect(args):
     logger.info("创建采集任务 #%d: keywords=%s, %s ~ %s",
                 job_id, args.keywords, args.date_from, args.date_to)
 
-    # ── 第1步：粗筛 ──────────────────────────────────────────────────
+    # ── 第1步：粗筛（并发搜索多个关键词）─────────────────────────────
     logger.info("="*60)
-    logger.info("第1步: 粗筛 - 从 lore.kernel.org 搜索邮件...")
+    logger.info("第1步: 粗筛 - 从 lore.kernel.org 并发搜索邮件...")
     logger.info("="*60)
 
-    client = LoreClient(timeout=30, delay=1.5)
+    import threading
     all_emails = []
-
-    # 用每个关键词分别搜索，合并去重
     seen_mids = set()
-    for kw in keywords:
+    search_lock = threading.Lock()
+
+    def search_one_keyword(kw):
+        """单个关键词搜索（独立 client 实例）"""
         logger.info("  搜索关键词: %r", kw)
-        batch = client.search_emails(
+        kw_client = LoreClient(timeout=30, delay=1.5)
+        batch = kw_client.search_emails(
             topic=kw,
             list_name=args.list,
             max_emails=args.max_emails,
             date_from=args.date_from,
             date_to=args.date_to,
         )
-        for em in batch:
-            mid = em.get("message_id", "")
-            if mid and mid not in seen_mids and not db.email_exists(mid):
-                seen_mids.add(mid)
-                all_emails.append(em)
-        logger.info("  找到 %d 封 (去重后累计 %d)", len(batch), len(all_emails))
-        time.sleep(1)
+        added = 0
+        with search_lock:
+            for em in batch:
+                mid = em.get("message_id", "")
+                if mid and mid not in seen_mids:
+                    seen_mids.add(mid)
+                    all_emails.append(em)
+                    added += 1
+        logger.info("  关键词 %r: 找到 %d 封, 去重后新增 %d", kw, len(batch), added)
+
+    # 并发搜索所有关键词
+    search_workers = min(len(keywords), args.workers)
+    with ThreadPoolExecutor(max_workers=search_workers) as pool:
+        futures = [pool.submit(search_one_keyword, kw) for kw in keywords]
+        for f in as_completed(futures):
+            try:
+                f.result()
+            except Exception as e:
+                logger.error("  搜索异常: %s", e)
 
     logger.info("粗筛完成: 共 %d 封新邮件", len(all_emails))
     db.update_job(job_id, total_found=len(all_emails))
@@ -245,9 +259,10 @@ def run_collect(args):
         db.update_job(job_id, status="done")
         return
 
-    # ── 第4步：下载完整线程并入库 ────────────────────────────────────
+    # ── 第4步：并发下载完整线程并入库 ─────────────────────────────────
     logger.info("="*60)
-    logger.info("第4步: 下载完整线程并入库 (%d 封相关邮件)...", len(relevant_emails))
+    logger.info("第4步: 并发下载完整线程并入库 (%d 封相关邮件, workers=%d)...",
+                len(relevant_emails), args.workers)
     logger.info("="*60)
 
     # 按 thread 去重：同一线程只下载一次
@@ -262,13 +277,25 @@ def run_collect(args):
 
     logger.info("去重后需下载 %d 个线程", len(thread_roots))
 
-    fetcher = LoreThreadFetcher(timeout=20, max_retries=2)
-    total_new = 0
+    # JSON 保存目录
+    safe_topic = args.keywords.replace(",", "_")[:30]
+    json_dir = EMAILS_DIR / f"kb_{safe_topic}"
+    json_dir.mkdir(parents=True, exist_ok=True)
 
-    for i, (root_mid, root_email) in enumerate(thread_roots.items(), 1):
+    # DB 写入锁
+    db_lock = threading.Lock()
+    total_new = 0
+    done_count = [0]
+    total_threads = len(thread_roots)
+
+    def download_one_thread(item):
+        """下载单个线程并入库（线程安全）"""
+        nonlocal total_new
+        root_mid, root_email = item
         source_url = root_email.get("source_url", "")
-        logger.info("  [%d/%d] 下载线程: %s", i, len(thread_roots),
-                     root_email.get("subject", "")[:60])
+
+        # 每个 worker 用独立的 fetcher（独立 session/cookie）
+        fetcher = LoreThreadFetcher(timeout=20, max_retries=2)
 
         thread_emails = []
         if source_url:
@@ -278,23 +305,29 @@ def run_collect(args):
                 logger.warning("    线程下载失败: %s", e)
 
         if not thread_emails:
-            # 降级：只存当前这封邮件
             thread_emails = [root_email]
 
-        # 存入知识库
+        # 标记相关性
         for em in thread_emails:
             em["relevance_score"] = root_email.get("relevance_score", 0)
             em["relevance_reason"] = root_email.get("relevance_reason", "")
 
-        new, skip = db.insert_emails_bulk(thread_emails)
-        total_new += new
-        if new:
-            logger.info("    入库 %d 封 (跳过 %d 封已存在)", new, skip)
-
-        # 构建线程关系
+        # 构建线程关系（纯 CPU 计算，不需要锁）
+        thread_objs = []
         if len(thread_emails) > 1:
-            threads = build_threads(thread_emails)
-            for t in threads:
+            try:
+                thread_objs = build_threads(thread_emails)
+            except Exception as e:
+                logger.warning("    线程构建失败: %s", e)
+
+        # 只在 DB 写入时加锁（尽量短）
+        with db_lock:
+            new, skip = db.insert_emails_bulk(thread_emails)
+            total_new += new
+            done_count[0] += 1
+            idx = done_count[0]
+
+            for t in thread_objs:
                 td = t.to_dict()
                 db.upsert_thread({
                     "id": td["root"]["message_id"],
@@ -306,19 +339,72 @@ def run_collect(args):
                     "participant_count": len(td["participants"]),
                 })
 
-        # 保存原始 JSON
-        safe_topic = args.keywords.replace(",", "_")[:30]
-        json_dir = EMAILS_DIR / f"kb_{safe_topic}"
-        json_dir.mkdir(parents=True, exist_ok=True)
+        if new:
+            logger.info("  [%d/%d] 入库 %d 封 (跳过 %d): %s",
+                        idx, total_threads, new, skip,
+                        root_email.get("subject", "")[:50])
+        else:
+            logger.info("  [%d/%d] 跳过 (已存在): %s",
+                        idx, total_threads,
+                        root_email.get("subject", "")[:50])
+
+        # 保存原始 JSON（不需要锁）
         for em in thread_emails:
             mid_safe = re.sub(r'[<>@/\\]', '_', em.get("message_id", "unknown"))[:80]
             json_path = json_dir / f"{mid_safe}.json"
             if not json_path.exists():
-                json_path.write_text(
-                    json.dumps(em, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
+                try:
+                    json_path.write_text(
+                        json.dumps(em, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                except Exception:
+                    pass
 
-        time.sleep(1.5)  # 对 lore 限速
+        return new
+
+    # 并发下载（每个线程独立超时，不阻塞整体进度）
+    THREAD_TIMEOUT = 60  # 单个任务超时秒数
+    pending = list(thread_roots.items())
+    futures = {}  # future -> (root_mid, root_email)
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        # 提交所有任务
+        for item in pending:
+            f = pool.submit(download_one_thread, item)
+            futures[f] = item
+
+        # 逐个等待结果，带超时
+        done = 0
+        while futures:
+            done_futures = []
+            for f in list(futures.keys()):
+                try:
+                    f.result(timeout=THREAD_TIMEOUT)
+                    done_futures.append(f)
+                except TimeoutError:
+                    root_mid, root_email = futures[f]
+                    logger.warning("  [%s] 下载超时 (>%ds): %s",
+                                   "?", THREAD_TIMEOUT,
+                                   root_email.get("subject", "")[:50])
+                    # 超时任务也视为完成，cancel 剩余的
+                    done_futures.append(f)
+                except Exception as e:
+                    root_mid, root_email = futures[f]
+                    logger.error("  [%s] 下载异常: %s — %s",
+                                "?", root_email.get("subject", "")[:50], e)
+                    done_futures.append(f)
+
+            for f in done_futures:
+                del futures[f]
+                done += 1
+                # 如果大部分已完成，不再等待剩余的
+                if done >= len(pending) - 2:
+                    for remaining in futures:
+                        try:
+                            remaining.cancel()
+                        except Exception:
+                            pass
+                    break
 
     logger.info("="*60)
     logger.info("采集完成！新增 %d 封邮件入库", total_new)

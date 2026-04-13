@@ -1,7 +1,7 @@
 """Thread Builder - 按 Message-ID/In-Reply-To/References 构建邮件线程树"""
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Dict, List
 
@@ -22,15 +22,23 @@ def _normalize_mid(mid: str) -> str:
 
 
 def _to_dt(date_str: str) -> datetime:
+    """将日期字符串解析为 UTC 时区的 datetime（确保所有结果可比较）"""
     if not date_str:
-        return datetime.min
+        return datetime.min.replace(tzinfo=timezone.utc)
     try:
-        return parsedate_to_datetime(date_str)
+        dt = parsedate_to_datetime(date_str)
+        # 统一转为 UTC
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
     except Exception:
         try:
-            return datetime.fromisoformat(date_str)
+            dt = datetime.fromisoformat(date_str)
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
         except Exception:
-            return datetime.min
+            return datetime.min.replace(tzinfo=timezone.utc)
 
 
 class Thread:
