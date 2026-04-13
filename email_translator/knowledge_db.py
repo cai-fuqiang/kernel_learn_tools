@@ -80,6 +80,7 @@ class KnowledgeDB:
                     related_functions TEXT DEFAULT '',
                     tags              TEXT DEFAULT '',
                     processed         INTEGER DEFAULT 0,
+                    translated_html_path TEXT DEFAULT '',
                     created_at        REAL NOT NULL
                 );
 
@@ -120,6 +121,14 @@ class KnowledgeDB:
                 """)
             except sqlite3.OperationalError:
                 pass  # 已存在
+
+            # 兼容旧数据库：补加 translated_html_path 列
+            try:
+                self.conn.execute(
+                    "ALTER TABLE threads ADD COLUMN translated_html_path TEXT DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # 列已存在
 
     # ------------------------------------------------------------------
     # 邮件操作
@@ -272,6 +281,23 @@ class KnowledgeDB:
             (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_untranslated_threads(self, limit: int = 100) -> List[Dict]:
+        """获取未翻译的线程（translated_html_path 为空）。"""
+        rows = self.conn.execute(
+            "SELECT * FROM threads WHERE (translated_html_path IS NULL OR translated_html_path = '') "
+            "ORDER BY start_date LIMIT ?",
+            (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_thread_translated_path(self, thread_id: str, html_path: str):
+        """更新线程的翻译 HTML 文件路径。"""
+        with self.conn:
+            self.conn.execute(
+                "UPDATE threads SET translated_html_path = ? WHERE id = ?",
+                (html_path, thread_id),
+            )
 
     def get_thread_emails(self, thread_id: str) -> List[Dict]:
         rows = self.conn.execute(

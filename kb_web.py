@@ -208,9 +208,28 @@ class KBHandler(BaseHTTPRequestHandler):
             self._json_response(api_search(
                 self.conn, qp("q", ""), int(qp("limit", "100"))
             ))
+        elif path.startswith("/translated/"):
+            # 静态文件服务：返回翻译 HTML 文件
+            thread_id = path[len("/translated/"):]
+            self._serve_translated_html(thread_id)
         else:
             # 所有其他路径返回 SPA HTML
             self._html_response(PAGE_HTML)
+
+    def _serve_translated_html(self, thread_id):
+        """根据 thread_id 查找并返回翻译 HTML 文件。"""
+        row = self.conn.execute(
+            "SELECT translated_html_path FROM threads WHERE id = ?",
+            (thread_id,)
+        ).fetchone()
+        if not row or not row["translated_html_path"]:
+            self.send_error(404, "翻译文件不存在")
+            return
+        html_path = Path(row["translated_html_path"])
+        if not html_path.exists():
+            self.send_error(404, f"翻译文件未找到: {html_path.name}")
+            return
+        self._html_response(html_path.read_text(encoding="utf-8"))
 
 
 # ======================================================================
@@ -414,17 +433,24 @@ function loadThreads(){
   $('main').innerHTML='<div class="loading">Loading...</div>';
   fetch('/api/threads?page='+threadPage+'&per_page=30').then(function(r){return r.json();}).then(function(d){
     var rows=d.threads.map(function(t){
+      var transBtn='';
+      if(t.translated_html_path){
+        transBtn='<a href="/translated/'+encodeURIComponent(t.id)+'" target="_blank" style="display:inline-block;padding:3px 10px;font-size:11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent);text-decoration:none;white-space:nowrap;">&#127760; 查看翻译</a>';
+      }else{
+        transBtn='<span style="color:var(--muted);font-size:11px;">未翻译</span>';
+      }
       return '<tr>'+
         '<td>'+esc(t.subject)+'</td>'+
         '<td>'+t.email_count+'</td>'+
         '<td>'+t.participant_count+'</td>'+
         '<td style="white-space:nowrap">'+esc(t.start_date?t.start_date.substring(0,16):'')+'</td>'+
+        '<td>'+transBtn+'</td>'+
       '</tr>';
     }).join('');
     $('main').innerHTML=
       '<div class="section-title">Threads ('+d.total+')</div>'+
       '<div class="table-wrap"><table>'+
-        '<tr><th>Subject</th><th>Emails</th><th>Participants</th><th>Start Date</th></tr>'+
+        '<tr><th>Subject</th><th>Emails</th><th>Participants</th><th>Start Date</th><th>Translation</th></tr>'+
         rows+
       '</table></div>'+
       pagerHtml(d.page,d.pages,'threadPage','loadThreads');

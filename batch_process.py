@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""batch_process.py — 批量处理知识库邮件：摘要生成 + 反哺知识库 + 跨线程综合分析
+"""batch_process.py — 批量处理知识库邮件：摘要生成 + 反哺知识库 + 跨线程综合分析 + 翻译
 
 功能：
   1. 遍历知识库中未处理的线程，AI 生成结构化摘要
   2. 摘要（key_points/consensus/tags 等）写回知识库
   3. 跨线程综合分析：时间线、核心矛盾、主题索引
-  4. 可选：全文搜索查询知识库
+  4. 批量翻译线程邮件，生成双语 HTML 文件
+  5. 可选：全文搜索查询知识库
 
 用法:
     # 生成单线程摘要并反哺
@@ -16,6 +17,10 @@
     python batch_process.py \
       --cross-analysis --topic "scheduler latency QoS 2017-2018" \
       --api-key sk-xxx
+
+    # 批量翻译线程 → 双语 HTML
+    python batch_process.py --translate --backend google
+    python batch_process.py --translate --thread-id <id> --force
 
     # 查询知识库
     python batch_process.py --query "SCHED_DEADLINE 设计决策"
@@ -655,6 +660,219 @@ def export_html(db: KnowledgeDB, output_path: str = None):
     return output_path
 
 
+# ======================================================================
+# 批量翻译线程 → HTML
+# ======================================================================
+
+def _db_email_to_translate_fmt(db_email: Dict) -> Dict:
+    """将知识库邮件格式转换为 translate_context.py 所需的邮件格式。"""
+    priority = (db_email.get("priority", "") or "").upper()
+    if "HIGH" in priority:
+        tag = "[讨论]"
+    elif "LOW" in priority or "PATCH" in (db_email.get("subject", "") or "").upper():
+        tag = "[PATCH摘要]"
+    else:
+        tag = "[概述/数据]"
+
+    from_str = db_email.get("from_name", "") or db_email.get("from_email", "")
+    email_addr = db_email.get("from_email", "")
+    if email_addr and email_addr not in from_str:
+        from_str = f"{from_str} <{email_addr}>"
+
+    return {
+        "from": from_str,
+        "subject": db_email.get("subject", ""),
+        "date": db_email.get("date", ""),
+        "body": db_email.get("body", ""),
+        "message_id": db_email.get("message_id", ""),
+        "in_reply_to": db_email.get("in_reply_to", ""),
+        "tag": tag,
+    }
+
+
+def _safe_filename(thread_id: str) -> str:
+    """将 thread_id 转为安全文件名（保留字母数字和连字符）。"""
+    import re as _re
+    safe = _re.sub(r"[^a-zA-Z0-9_\-]", "_", thread_id)
+    return safe[:80]  # 截断防止过长
+
+
+def run_translate(args, db: KnowledgeDB):
+    """批量翻译知识库线程，生成翻译 HTML 文件并写回路径。"""
+    from email_translator.config import OUTPUT_DIR
+    from email_translator.translator import create_translator
+    from email_translator.translation_cache import TranslationCache
+    from translate_context import (
+        CachedTranslator, should_translate, translate_body,
+        generate_html, _build_thread_tree, _split_body_and_diff,
+        _translate_diff_comments,
+    )
+
+    # 获取待翻译线程
+    if args.thread_id:
+        row = db.conn.execute(
+            "SELECT * FROM threads WHERE id = ?", (args.thread_id,)
+        ).fetchone()
+        if not row:
+            logger.error("线程不存在: %s", args.thread_id)
+            return
+        threads = [dict(row)]
+    elif args.force:
+        rows = db.conn.execute(
+            "SELECT * FROM threads ORDER BY start_date LIMIT ?",
+            (args.batch_size,)
+        ).fetchall()
+        threads = [dict(r) for r in rows]
+    else:
+        threads = db.get_untranslated_threads(limit=args.batch_size)
+
+    if not threads:
+        logger.info("没有需要翻译的线程。")
+        return
+
+    logger.info("准备翻译 %d 个线程...", len(threads))
+
+    # 初始化翻译器
+    backend = args.backend or "google"
+    proxy = getattr(args, "proxy", None) or None
+    if backend == "api":
+        if not args.api_key:
+            logger.error("--backend api 需要 --api-key")
+            return
+        translator = create_translator(
+            "api", api_key=args.api_key, provider=args.api_provider,
+            model=args.model or None, proxy=proxy,
+        )
+    else:
+        translator = create_translator(backend, proxy=proxy)
+
+    # 包装翻译缓存
+    cache = TranslationCache()
+    translator = CachedTranslator(translator, cache, backend)
+    cache_size = cache.size()
+    if cache_size > 0:
+        logger.info("翻译缓存: %d 条已缓存", cache_size)
+
+    workers = max(1, getattr(args, "workers", 1) or 1)
+    output_dir = OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    success = 0
+    for idx, thread in enumerate(threads, 1):
+        tid = thread["id"]
+        subject = thread.get("subject", "(无主题)")
+        logger.info("[%d/%d] 翻译线程: %s", idx, len(threads), subject[:60])
+
+        # 获取线程邮件
+        emails_db = db.get_thread_emails(tid)
+        if not emails_db:
+            logger.warning("  线程无邮件，跳过")
+            continue
+
+        # 格式转换
+        emails = [_db_email_to_translate_fmt(em) for em in emails_db]
+        logger.info("  邮件数: %d", len(emails))
+
+        # 收集需要翻译的任务
+        translated = {}
+        tasks = []  # (index, email)
+        for i, em in enumerate(emails):
+            body = em.get("body", "")
+            if should_translate(body):
+                tasks.append((i, em))
+
+        # 翻译邮件正文
+        done = 0
+        if workers <= 1 or len(tasks) < 2:
+            # 串行模式
+            for i, em in tasks:
+                done += 1
+                translated[f"email_{i}"] = translate_body(translator, em.get("body", ""))
+                if done % 5 == 0:
+                    time.sleep(0.5)
+        else:
+            # 多线程并行模式
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import threading
+            lock = threading.Lock()
+
+            def _do_translate(idx_em):
+                i, em = idx_em
+                return i, translate_body(translator, em.get("body", ""))
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {pool.submit(_do_translate, t): t for t in tasks}
+                for future in as_completed(futures):
+                    i, result = future.result()
+                    translated[f"email_{i}"] = result
+                    done += 1
+                    with lock:
+                        if done % 10 == 0:
+                            logger.info("    翻译进度: %d/%d", done, len(tasks))
+
+        # 翻译邮件内 diff 注释
+        diff_tasks = []
+        for i, em in enumerate(emails):
+            _, em_diff = _split_body_and_diff(em.get("body", ""))
+            if em_diff:
+                diff_tasks.append((i, em_diff))
+
+        if workers <= 1 or len(diff_tasks) < 2:
+            for i, em_diff in diff_tasks:
+                translated[f"diff_{i}"] = _translate_diff_comments(translator, em_diff)
+        else:
+            def _do_diff(idx_diff):
+                i, d = idx_diff
+                return i, _translate_diff_comments(translator, d)
+
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_do_diff, t) for t in diff_tasks]
+                for future in as_completed(futures):
+                    i, result = future.result()
+                    translated[f"diff_{i}"] = result
+
+        logger.info("  翻译完成: %d 封邮件, %d 个 diff", done, len(diff_tasks))
+
+        # 生成 HTML — 构造一个虚拟 commit 信息
+        commit = {
+            "subject": subject,
+            "date": thread.get("start_date", ""),
+        }
+        email_header = f"原始 {len(emails)} 封 / 过滤 0 封 / 保留 {len(emails)} 封"
+
+        html = generate_html(
+            commit=commit,
+            diff="",
+            email_header=email_header,
+            emails=emails,
+            checklist="",
+            translated_bodies=translated,
+            source_hash=f"kb-{tid}",
+        )
+
+        # 写入文件
+        safe_name = _safe_filename(tid)
+        out_file = output_dir / f"thread_{safe_name}_translated.html"
+        out_file.write_text(html, encoding="utf-8")
+        html_path = str(out_file)
+
+        # 写回 DB
+        db.update_thread_translated_path(tid, html_path)
+
+        logger.info("  已生成: %s (%d KB)", out_file.name, len(html) // 1024)
+        success += 1
+
+    logger.info("翻译完成! 成功 %d/%d 个线程", success, len(threads))
+
+    # 翻译缓存统计
+    stats = cache.stats()
+    if stats.get("total", 0) > 0:
+        logger.info(
+            "缓存统计: 命中 %d, 未命中 %d, 命中率 %s",
+            stats["hits"], stats["misses"], stats["hit_rate"],
+        )
+
+
 def show_stats(db: KnowledgeDB):
     """显示知识库统计。"""
     s = db.stats()
@@ -705,6 +923,8 @@ def main():
                         help="对未处理的线程生成 AI 摘要并反哺知识库")
     parser.add_argument("--cross-analysis", action="store_true",
                         help="对已处理的线程做跨线程综合分析")
+    parser.add_argument("--translate", action="store_true",
+                        help="批量翻译线程邮件，生成双语 HTML 文件")
     parser.add_argument("--query", default="",
                         help="全文搜索知识库")
     parser.add_argument("--stats", action="store_true",
@@ -726,6 +946,14 @@ def main():
     parser.add_argument("--batch-size", type=int, default=50,
                         help="每批处理的线程数 (默认 50)")
 
+    # 翻译参数 (--translate 模式)
+    parser.add_argument("--backend", default="google", choices=["google", "youdao", "api"],
+                        help="翻译后端 (默认 google)")
+    parser.add_argument("--proxy", default="", help="代理地址 (如 127.0.0.1:7897)")
+    parser.add_argument("--workers", type=int, default=1, help="并行翻译线程数 (默认 1)")
+    parser.add_argument("--thread-id", default="", help="指定单个线程 ID 翻译")
+    parser.add_argument("--force", action="store_true", help="强制重新翻译已翻译的线程")
+
     args = parser.parse_args()
 
     db = KnowledgeDB()
@@ -746,6 +974,8 @@ def main():
         print(f"知识库 HTML 已导出: {out}")
     elif args.query:
         query_knowledge(db, args.query)
+    elif args.translate:
+        run_translate(args, db)
     elif args.summarize:
         if not args.api_key:
             logger.error("--summarize 需要 --api-key 或 config.json 中的 api_key")
