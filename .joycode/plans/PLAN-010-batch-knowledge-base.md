@@ -61,6 +61,56 @@ batch_collect.py (新)        knowledge_db.py (新)        batch_process.py (新
 - [ ] 验证去重、断点续传、FTS5搜索
 - [ ] 验证 HTML 导出页面正常显示
 
+## TODO 6: 采集过滤增强 — 标题黑名单 + AI 精筛清洗
+> 目标: 解决当前 1819 线程中大量无关邮件的问题 (drm/Xen/Qemu/[PULL] 等)
+
+- [ ] batch_collect.py 添加标题黑名单机制：
+  - 正则匹配跳过: `[PULL]`, `Recent changes`, `[pull]`, `drm-intel-next`
+  - 前缀黑名单: `[Qemu-devel]`, `[media]`, `[drm`, `[xen`, `[kernel-hardening]`, `[Bug ` 等与调度无关的子系统
+  - 黑名单可配置 (常量列表)，在规则预筛阶段生效，跳过的邮件不下载线程
+- [ ] batch_process.py 新增 `--ai-clean` 模式：
+  - 对已入库但 relevance_score=0.5 (rule_match_only) 的线程做 AI 精筛
+  - AI 判断不相关的线程标记 relevance_score=0 + hidden=1 (软删除)
+  - 网页端默认隐藏 hidden=1 的线程，提供"显示全部"开关
+- [ ] knowledge_db.py threads 表添加 `hidden` 列 (INTEGER DEFAULT 0)
+- [ ] kb_web.py api_threads() 默认过滤 hidden=1
+
+## TODO 7: 话题标签 + AI 摘要 — 知识库核心价值
+> 目标: 让每个线程有结构化的话题归属、标签、摘要，支撑话题检索
+
+- [ ] knowledge_db.py 新增 `topics` 表:
+  - id, name (如 "fair sleeper"), description, keywords, created_at
+  - 一个线程可属于多个话题 → `thread_topics` 关联表 (thread_id, topic_id)
+- [ ] batch_process.py `--summarize` 增强:
+  - AI 为每个线程生成: summary_zh, key_points, tags
+  - AI 同时判断线程所属话题 (从已有 topics 列表中匹配，或建议新话题)
+  - 结果写回 threads 表 (summary_zh, key_points, tags) + thread_topics 关联
+- [ ] batch_process.py 新增 `--add-topic "fair sleeper"`:
+  - 注册话题到 topics 表
+  - 可选: 自动扫描现有线程，AI 判断哪些属于该话题
+- [ ] 支持从网页端添加/管理话题
+
+## TODO 8: 网页端话题视图 — 知识库交互入口
+> 目标: 输入 "fair sleeper" → 直接看到相关线程+摘要
+
+- [ ] 侧边栏改造:
+  - Dashboard / Topics(话题) / Threads(全部线程) / Search
+  - Topics 页: 展示所有话题卡片 (名称、线程数、描述)
+  - 点击话题 → 该话题下的线程列表 (含摘要、标签、翻译状态)
+- [ ] Threads 页增强:
+  - 顶部筛选栏: 按话题/作者/时间/翻译状态过滤
+  - 点击线程可展开查看邮件列表
+  - 搜索整合: FTS5 + tags + topic 综合排序
+- [ ] API 新增:
+  - GET /api/topics — 话题列表
+  - GET /api/topics/:id/threads — 话题下的线程
+  - POST /api/topics — 创建话题
+- [ ] 页面删除功能: 软删除线程/邮件 (hidden=1)，确认对话框
+
+## 已完成
+- [x] 网页端翻译按钮 + 翻译对话框 + 后台翻译 + 进度轮询
+- [x] batch_process.py 多线程翻译超时保护
+
 ## 复用现有模块
 | 需求 | 复用模块 |
 |------|----------|
