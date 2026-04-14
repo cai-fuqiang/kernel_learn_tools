@@ -834,6 +834,8 @@ def run_translate(args, db: KnowledgeDB):
         return tid, True
 
     # ── 调度：线程级并行 ──
+    # 大线程优先 (Longest Job First)，避免尾部全是大任务阻塞
+    threads.sort(key=lambda t: t.get("email_count", 1), reverse=True)
     total = len(threads)
     success = 0
 
