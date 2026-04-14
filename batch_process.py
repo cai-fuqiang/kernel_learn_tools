@@ -757,6 +757,12 @@ def run_translate(args, db: KnowledgeDB):
     output_dir = OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── 超时配置 ──
+    # 单个线程翻译的超时时间（秒），根据邮件数量动态计算
+    # 基础 120 秒 + 每封邮件 60 秒，上限 1800 秒（30 分钟）
+    def _thread_timeout(email_count):
+        return min(120 + email_count * 60, 1800)
+
     # ── 单个线程翻译函数（可被线程池调用）──
     def _translate_one_thread(idx, thread, total):
         """翻译单个线程，返回 (thread_id, success: bool)"""
@@ -838,6 +844,7 @@ def run_translate(args, db: KnowledgeDB):
     threads.sort(key=lambda t: t.get("email_count", 1), reverse=True)
     total = len(threads)
     success = 0
+    skipped = 0
 
     if workers <= 1:
         # 串行模式
@@ -847,20 +854,33 @@ def run_translate(args, db: KnowledgeDB):
                 success += 1
     else:
         # 多线程并行：多个线程同时翻译
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
         with ThreadPoolExecutor(max_workers=workers) as pool:
             future_map = {}
             for idx, thread in enumerate(threads, 1):
                 f = pool.submit(_translate_one_thread, idx, thread, total)
                 future_map[f] = thread
             for future in as_completed(future_map):
+                thread_info = future_map[future]
+                tid = thread_info.get("id", "?")
+                timeout_sec = _thread_timeout(thread_info.get("email_count", 1))
                 try:
-                    _, ok = future.result()
+                    _, ok = future.result(timeout=timeout_sec)
                     if ok:
                         success += 1
+                except TimeoutError:
+                    skipped += 1
+                    logger.warning("翻译线程 %s 超时 (>%ds)，跳过",
+                                   tid, timeout_sec)
                 except Exception as e:
-                    tid = future_map[future].get("id", "?")
+                    skipped += 1
                     logger.error("翻译线程 %s 异常: %s", tid, e)
+
+    if skipped:
+        logger.info("翻译完成! 成功 %d/%d, 跳过(超时/失败) %d",
+                     success, total, skipped)
+    else:
+        logger.info("翻译完成! 成功 %d/%d 个线程", success, total)
 
     logger.info("翻译完成! 成功 %d/%d 个线程", success, total)
 

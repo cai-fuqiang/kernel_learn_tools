@@ -79,8 +79,13 @@ batch_collect.py --keywords "..." --date-from ... --date-to ...
   → LoreClient 并发搜索 → 规则预筛 → AI 精筛 → LoreThreadFetcher 下载线程 → KnowledgeDB 入库
 batch_process.py --summarize
   → KnowledgeDB 读取未处理线程 → AI 摘要 → 写回 DB
+batch_process.py --translate --backend google --workers 32
+  → 批量翻译线程邮件 → 生成双语 HTML → 写回 DB (translated_html_path)
+  → 多线程模式带动态超时保护 (120s + 每封邮件60s，上限1800s)
 kb_web.py
   → 从 knowledge.db 读取 → HTTP 服务展示 SPA
+  → 内置翻译功能: 网页端可直接触发翻译 (POST /api/translate)
+  → TranslateManager 后台线程翻译，前端实时轮询进度
 ```
 
 ### 模块依赖链
@@ -90,7 +95,7 @@ pack_for_openclaw.py ─→ commit_analyzer → lore_thread_fetcher → email_pr
 translate_context.py ─→ translator → translation_cache
 batch_collect.py ─→ lore_client → lore_thread_fetcher → thread_builder → knowledge_db
 batch_process.py ─→ knowledge_db → translator (AI)
-kb_web.py ─→ knowledge_db (SQLite 直接查询)
+kb_web.py ─→ knowledge_db (SQLite 直接查询) → translator (网页端翻译)
 ```
 
 ## 4. 代码风格与命名约定

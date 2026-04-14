@@ -21,6 +21,8 @@ import json
 import logging
 import sqlite3
 import sys
+import threading
+import time
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -146,6 +148,173 @@ def api_search(conn, query, limit=100):
 
 
 # ======================================================================
+# 后台翻译管理器
+# ======================================================================
+
+class TranslateManager:
+    """管理后台翻译任务：支持从网页触发单个/批量线程翻译。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._task = None  # 当前翻译任务状态
+
+    def status(self):
+        with self._lock:
+            if not self._task:
+                return {"running": False}
+            return dict(self._task)
+
+    def start(self, thread_ids, backend, api_key="", api_provider="deepseek",
+              model="", proxy=""):
+        """启动后台翻译任务。"""
+        with self._lock:
+            if self._task and self._task.get("running"):
+                return {"error": "已有翻译任务正在运行"}
+            self._task = {
+                "running": True,
+                "total": len(thread_ids),
+                "done": 0,
+                "success": 0,
+                "failed": 0,
+                "current": "",
+                "errors": [],
+            }
+
+        t = threading.Thread(
+            target=self._run,
+            args=(thread_ids, backend, api_key, api_provider, model, proxy),
+            daemon=True,
+        )
+        t.start()
+        return {"ok": True, "total": len(thread_ids)}
+
+    def _run(self, thread_ids, backend, api_key, api_provider, model, proxy):
+        from email_translator.config import OUTPUT_DIR
+        from email_translator.knowledge_db import KnowledgeDB
+        from email_translator.translator import create_translator
+        from email_translator.translation_cache import TranslationCache
+        from translate_context import (
+            CachedTranslator, should_translate, translate_body,
+            generate_html, _split_body_and_diff, _translate_diff_comments,
+        )
+
+        db = KnowledgeDB()
+        output_dir = OUTPUT_DIR
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 创建翻译器
+        try:
+            if backend == "api":
+                translator = create_translator(
+                    "api", api_key=api_key, provider=api_provider,
+                    model=model or None, proxy=proxy or None,
+                )
+            else:
+                translator = create_translator(backend, proxy=proxy or None)
+        except Exception as e:
+            with self._lock:
+                self._task["running"] = False
+                self._task["errors"].append(f"创建翻译器失败: {e}")
+            return
+
+        cache = TranslationCache()
+        translator = CachedTranslator(translator, cache, backend)
+
+        def _safe_filename(s):
+            import re
+            return re.sub(r'[<>:"/\\|?*\s]', '_', s)[:120]
+
+        def _db_email_to_translate_fmt(em):
+            return {
+                "from": em.get("from_name", "") or em.get("from_email", ""),
+                "date": em.get("date", ""),
+                "subject": em.get("subject", ""),
+                "body": em.get("body", ""),
+                "message_id": em.get("message_id", ""),
+                "in_reply_to": em.get("in_reply_to", ""),
+            }
+
+        for tid in thread_ids:
+            row = db.conn.execute(
+                "SELECT * FROM threads WHERE id = ?", (tid,)
+            ).fetchone()
+            if not row:
+                with self._lock:
+                    self._task["done"] += 1
+                    self._task["failed"] += 1
+                continue
+
+            thread = dict(row)
+            subject = thread.get("subject", "(无主题)")
+
+            with self._lock:
+                self._task["current"] = subject[:60]
+
+            try:
+                emails_db = db.get_thread_emails(tid)
+                if not emails_db:
+                    with self._lock:
+                        self._task["done"] += 1
+                        self._task["failed"] += 1
+                    continue
+
+                emails = [_db_email_to_translate_fmt(em) for em in emails_db]
+                translated = {}
+
+                # 翻译正文
+                for i, em in enumerate(emails):
+                    body = em.get("body", "")
+                    if should_translate(body):
+                        translated[f"email_{i}"] = translate_body(
+                            translator, body)
+
+                # 翻译 diff 注释
+                for i, em in enumerate(emails):
+                    _, em_diff = _split_body_and_diff(em.get("body", ""))
+                    if em_diff:
+                        translated[f"diff_{i}"] = _translate_diff_comments(
+                            translator, em_diff)
+
+                # 生成 HTML
+                commit = {"subject": subject,
+                          "date": thread.get("start_date", "")}
+                email_header = (f"原始 {len(emails)} 封 / "
+                                f"过滤 0 封 / 保留 {len(emails)} 封")
+
+                html = generate_html(
+                    commit=commit, diff="",
+                    email_header=email_header, emails=emails,
+                    checklist="", translated_bodies=translated,
+                    source_hash=f"kb-{tid}",
+                )
+
+                safe_name = _safe_filename(tid)
+                out_file = output_dir / f"thread_{safe_name}_translated.html"
+                out_file.write_text(html, encoding="utf-8")
+                db.update_thread_translated_path(tid, str(out_file))
+
+                with self._lock:
+                    self._task["done"] += 1
+                    self._task["success"] += 1
+
+            except Exception as e:
+                logger.error("翻译线程 %s 失败: %s", tid, e)
+                with self._lock:
+                    self._task["done"] += 1
+                    self._task["failed"] += 1
+                    if len(self._task["errors"]) < 10:
+                        self._task["errors"].append(
+                            f"{subject[:40]}: {str(e)[:80]}")
+
+        with self._lock:
+            self._task["running"] = False
+            self._task["current"] = ""
+
+
+_translate_mgr = TranslateManager()
+
+
+# ======================================================================
 # HTTP Handler
 # ======================================================================
 
@@ -208,6 +377,8 @@ class KBHandler(BaseHTTPRequestHandler):
             self._json_response(api_search(
                 self.conn, qp("q", ""), int(qp("limit", "100"))
             ))
+        elif path == "/api/translate/status":
+            self._json_response(_translate_mgr.status())
         elif path.startswith("/translated/"):
             # 静态文件服务：返回翻译 HTML 文件
             thread_id = unquote(path[len("/translated/"):])
@@ -230,6 +401,42 @@ class KBHandler(BaseHTTPRequestHandler):
             self.send_error(404, f"翻译文件未找到: {html_path.name}")
             return
         self._html_response(html_path.read_text(encoding="utf-8"))
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        content_len = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_len) if content_len else b""
+
+        if path == "/api/translate":
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+            except json.JSONDecodeError:
+                self._json_response({"error": "无效 JSON"}, 400)
+                return
+
+            thread_ids = data.get("thread_ids", [])
+            backend = data.get("backend", "google")
+            api_key = data.get("api_key", "")
+            api_provider = data.get("api_provider", "deepseek")
+            model = data.get("model", "")
+            proxy = data.get("proxy", "")
+
+            if not thread_ids:
+                self._json_response({"error": "请指定要翻译的线程"}, 400)
+                return
+            if backend == "api" and not api_key:
+                self._json_response({"error": "API 模式需要提供 api_key"}, 400)
+                return
+
+            result = _translate_mgr.start(
+                thread_ids, backend, api_key=api_key,
+                api_provider=api_provider, model=model, proxy=proxy,
+            )
+            status_code = 200 if "ok" in result else 409
+            self._json_response(result, status_code)
+        else:
+            self._json_response({"error": "not found"}, 404)
 
 
 # ======================================================================
@@ -325,6 +532,31 @@ tr:hover{background:var(--surface2);}
   .main{margin-left:0;padding:16px;}
   .stats-grid{grid-template-columns:repeat(2,1fr);}
 }
+
+/* Translate dialog */
+.trans-dialog{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.65);z-index:400;display:none;align-items:center;justify-content:center;}
+.trans-dialog.active{display:flex;}
+.trans-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:420px;max-width:95vw;padding:24px;}
+.trans-box h3{font-size:16px;margin-bottom:16px;}
+.trans-field{margin-bottom:14px;}
+.trans-field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600;}
+.trans-field select,.trans-field input{width:100%;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);outline:none;}
+.trans-field select:focus,.trans-field input:focus{border-color:var(--accent);}
+.trans-field .hint{font-size:11px;color:var(--muted);margin-top:3px;}
+.trans-btns{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
+.trans-btns button{padding:8px 20px;font-size:13px;border-radius:6px;cursor:pointer;border:1px solid var(--border);}
+.btn-cancel{background:var(--surface);color:var(--muted);}
+.btn-cancel:hover{background:var(--border);color:var(--text);}
+.btn-start{background:var(--accent2);color:#fff;border-color:var(--accent2);}
+.btn-start:hover{background:var(--accent);}
+.btn-start:disabled{opacity:.5;cursor:default;}
+.trans-progress{margin-top:14px;display:none;}
+.trans-progress .bar-bg{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;}
+.trans-progress .bar-fg{height:100%;background:var(--accent);border-radius:4px;transition:width .3s;}
+.trans-progress .info{font-size:12px;color:var(--muted);margin-top:6px;}
+.trans-progress .errors{font-size:11px;color:var(--red);margin-top:6px;max-height:80px;overflow-y:auto;}
+.btn-translate{display:inline-block;padding:3px 10px;font-size:11px;border:1px solid var(--orange);border-radius:4px;color:var(--orange);cursor:pointer;white-space:nowrap;background:none;}
+.btn-translate:hover{background:rgba(210,153,34,.15);}
 </style>
 </head>
 <body>
@@ -344,6 +576,54 @@ tr:hover{background:var(--surface2);}
   <div class="modal" id="modal">
     <button class="close-btn" onclick="closeModal()">&times;</button>
     <div id="modalContent"></div>
+  </div>
+</div>
+
+<!-- Translate dialog -->
+<div class="trans-dialog" id="transDialog" onclick="if(event.target===this)closeTransDialog()">
+  <div class="trans-box">
+    <h3 id="transTitle">&#127760; 翻译线程</h3>
+    <div class="trans-field">
+      <label>翻译后端</label>
+      <select id="transBackend" onchange="toggleApiFields()">
+        <option value="google">Google 翻译 (免费)</option>
+        <option value="youdao">有道翻译 (免费)</option>
+        <option value="api">AI 翻译 (需要 API Key)</option>
+      </select>
+    </div>
+    <div id="apiFields" style="display:none">
+      <div class="trans-field">
+        <label>API Key</label>
+        <input type="password" id="transApiKey" placeholder="sk-xxxxxxxx">
+      </div>
+      <div class="trans-field">
+        <label>服务商</label>
+        <select id="transProvider">
+          <option value="deepseek">DeepSeek</option>
+          <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+          <option value="aliyun">阿里百炼</option>
+          <option value="kimi">Kimi (Moonshot)</option>
+          <option value="openai">OpenAI</option>
+        </select>
+      </div>
+      <div class="trans-field">
+        <label>模型 (留空用默认)</label>
+        <input type="text" id="transModel" placeholder="留空使用默认模型">
+      </div>
+    </div>
+    <div class="trans-field">
+      <label>代理 (可选)</label>
+      <input type="text" id="transProxy" placeholder="如 127.0.0.1:7897">
+    </div>
+    <div class="trans-progress" id="transProgress">
+      <div class="bar-bg"><div class="bar-fg" id="transBar" style="width:0%"></div></div>
+      <div class="info" id="transInfo"></div>
+      <div class="errors" id="transErrors"></div>
+    </div>
+    <div class="trans-btns">
+      <button class="btn-cancel" onclick="closeTransDialog()">取消</button>
+      <button class="btn-start" id="transStartBtn" onclick="startTranslate()">开始翻译</button>
+    </div>
   </div>
 </div>
 
@@ -432,12 +712,16 @@ function toggleSort(col){
 function loadThreads(){
   $('main').innerHTML='<div class="loading">Loading...</div>';
   fetch('/api/threads?page='+threadPage+'&per_page=30').then(function(r){return r.json();}).then(function(d){
+    var untranslatedIds=[];
     var rows=d.threads.map(function(t){
       var transBtn='';
+      var safeId=encodeURIComponent(t.id);
       if(t.translated_html_path){
-        transBtn='<a href="/translated/'+encodeURIComponent(t.id)+'" target="_blank" style="display:inline-block;padding:3px 10px;font-size:11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent);text-decoration:none;white-space:nowrap;">&#127760; 查看翻译</a>';
+        transBtn='<a href="/translated/'+safeId+'" target="_blank" style="display:inline-block;padding:3px 10px;font-size:11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent);text-decoration:none;white-space:nowrap;">&#127760; 查看翻译</a> '+
+          '<span class="btn-translate" onclick="openTransDialogEnc(\''+safeId+'\')">重新翻译</span>';
       }else{
-        transBtn='<span style="color:var(--muted);font-size:11px;">未翻译</span>';
+        untranslatedIds.push(t.id);
+        transBtn='<span class="btn-translate" onclick="openTransDialogEnc(\''+safeId+'\')">&#9654; 翻译</span>';
       }
       return '<tr>'+
         '<td>'+esc(t.subject)+'</td>'+
@@ -447,8 +731,14 @@ function loadThreads(){
         '<td>'+transBtn+'</td>'+
       '</tr>';
     }).join('');
+    var batchBtn='';
+    if(untranslatedIds.length>0){
+      batchBtn='<button style="padding:6px 16px;font-size:12px;border:1px solid var(--orange);border-radius:6px;background:rgba(210,153,34,.1);color:var(--orange);cursor:pointer;margin-left:12px;" '+
+        'onclick="openTransDialogAll()">&#9654; 翻译本页全部未翻译 ('+untranslatedIds.length+')</button>';
+      window._pageUntranslatedIds=untranslatedIds;
+    }
     $('main').innerHTML=
-      '<div class="section-title">Threads ('+d.total+')</div>'+
+      '<div class="section-title">Threads ('+d.total+')'+batchBtn+'</div>'+
       '<div class="table-wrap"><table>'+
         '<tr><th>Subject</th><th>Emails</th><th>Participants</th><th>Start Date</th><th>Translation</th></tr>'+
         rows+
@@ -508,7 +798,99 @@ function showEmail(id){
   });
 }
 function closeModal(){$('modalOverlay').classList.remove('active');}
-document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeModal();closeTransDialog();}});
+
+// ── Translate dialog ──
+var _transIds=[];
+var _transPollTimer=null;
+
+function openTransDialogEnc(encodedId){
+  openTransDialog([decodeURIComponent(encodedId)]);
+}
+
+function toggleApiFields(){
+  var v=$('transBackend').value;
+  $('apiFields').style.display=v==='api'?'block':'none';
+}
+
+function openTransDialog(ids){
+  _transIds=ids;
+  var title=ids.length===1?'翻译 1 个线程':'翻译 '+ids.length+' 个线程';
+  $('transTitle').textContent='\u{1F310} '+title;
+  $('transProgress').style.display='none';
+  $('transStartBtn').disabled=false;
+  $('transStartBtn').textContent='开始翻译';
+  $('transErrors').innerHTML='';
+  $('transDialog').classList.add('active');
+}
+
+function openTransDialogAll(){
+  if(window._pageUntranslatedIds && window._pageUntranslatedIds.length>0){
+    openTransDialog(window._pageUntranslatedIds);
+  }
+}
+
+function closeTransDialog(){
+  $('transDialog').classList.remove('active');
+  if(_transPollTimer){clearInterval(_transPollTimer);_transPollTimer=null;}
+}
+
+function startTranslate(){
+  var backend=$('transBackend').value;
+  var body={thread_ids:_transIds,backend:backend};
+  if(backend==='api'){
+    body.api_key=$('transApiKey').value.trim();
+    body.api_provider=$('transProvider').value;
+    body.model=$('transModel').value.trim();
+    if(!body.api_key){alert('请输入 API Key');return;}
+  }
+  var proxy=$('transProxy').value.trim();
+  if(proxy)body.proxy=proxy;
+
+  $('transStartBtn').disabled=true;
+  $('transStartBtn').textContent='提交中...';
+
+  fetch('/api/translate',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d.error){
+      alert(d.error);
+      $('transStartBtn').disabled=false;
+      $('transStartBtn').textContent='开始翻译';
+      return;
+    }
+    $('transStartBtn').textContent='翻译中...';
+    $('transProgress').style.display='block';
+    $('transBar').style.width='0%';
+    $('transInfo').textContent='正在翻译 0/'+d.total+'...';
+    _transPollTimer=setInterval(pollTranslateStatus,2000);
+  });
+}
+
+function pollTranslateStatus(){
+  fetch('/api/translate/status').then(function(r){return r.json();}).then(function(s){
+    if(!s.running && !s.total){return;}
+    var pct=s.total?Math.round(s.done/s.total*100):0;
+    $('transBar').style.width=pct+'%';
+    var info='进度: '+s.done+'/'+s.total+' (成功 '+s.success+', 失败 '+s.failed+')';
+    if(s.current)info+=' | 当前: '+s.current;
+    $('transInfo').textContent=info;
+    if(s.errors && s.errors.length>0){
+      $('transErrors').innerHTML=s.errors.map(function(e){return '<div>'+esc(e)+'</div>';}).join('');
+    }
+    if(!s.running){
+      clearInterval(_transPollTimer);_transPollTimer=null;
+      $('transStartBtn').textContent='完成!';
+      setTimeout(function(){
+        $('transStartBtn').disabled=false;
+        $('transStartBtn').textContent='开始翻译';
+        if(currentView==='threads')loadThreads();
+      },1500);
+    }
+  });
+}
 
 // ── Pagination helper ──
 function pagerHtml(page,pages,pageVar,fn){
