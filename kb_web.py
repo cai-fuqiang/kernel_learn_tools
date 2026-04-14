@@ -24,7 +24,7 @@ import sys
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -210,7 +210,7 @@ class KBHandler(BaseHTTPRequestHandler):
             ))
         elif path.startswith("/translated/"):
             # 静态文件服务：返回翻译 HTML 文件
-            thread_id = path[len("/translated/"):]
+            thread_id = unquote(path[len("/translated/"):])
             self._serve_translated_html(thread_id)
         else:
             # 所有其他路径返回 SPA HTML
