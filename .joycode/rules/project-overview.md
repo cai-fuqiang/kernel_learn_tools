@@ -76,7 +76,11 @@ translate_context.py <context_full.txt>
 ### 工作流 3: 批量知识库
 ```
 batch_collect.py --keywords "..." --date-from ... --date-to ...
-  → LoreClient 并发搜索 → 规则预筛 → AI 精筛 → LoreThreadFetcher 下载线程 → KnowledgeDB 入库
+  → 流式生产者/消费者并行：
+    搜索/规则预筛/AI精筛/入队  ||  下载线程/入库 并行执行
+  → collect_jobs.progress 记录“每关键词独立游标”用于断点续传
+  → collect_queue 持久化队列，支持失败重试与中断恢复
+  → max-emails/max-threads 作为单轮预算，任务可保持 running 并 --resume 继续
 batch_process.py --summarize
   → KnowledgeDB 读取未处理线程 → AI 摘要 → 写回 DB
 batch_process.py --translate --backend google --workers 32

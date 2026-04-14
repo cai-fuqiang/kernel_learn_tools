@@ -28,13 +28,19 @@ batch_collect.py (新)        knowledge_db.py (新)        batch_process.py (新
 
 ## TODO 2: batch_collect.py — 批量采集脚本 ✅
 - [x] CLI 参数：--keywords, --date-from, --date-to, --list, --max-emails, --api-key, --api-provider
-- [ ] 第1步-粗筛：复用 LoreClient.search_emails()，按子系统+时间范围拉邮件元数据
-- [ ] 第2步-规则预筛：subject/body 关键词匹配过滤（可配置关键词列表）
-- [ ] 第3步-AI精筛：复用 translator.py 的 API 调用，DeepSeek 判断相关性 YES/NO
-- [ ] 第4步-下载完整线程：精筛通过的邮件，用 LoreThreadFetcher 拉完整线程
-- [ ] 第5步-入库：调用 knowledge_db 存入 SQLite + 保存原始 JSON
-- [ ] 断点续传：collect_jobs 记录进度，中断后可继续
-- [ ] 并发控制：AI精筛可并发（线程池），Lore下载需限速
+- [x] 第1步-粗筛：复用 LoreClient.search_emails()，按子系统+时间范围拉邮件元数据
+- [x] 第2步-规则预筛：subject/body 关键词匹配过滤（可配置关键词列表）
+- [x] 第3步-AI精筛：复用 translator.py 的 API 调用，DeepSeek 判断相关性 YES/NO
+- [x] 第4步-下载完整线程：精筛通过的邮件，用 LoreThreadFetcher 拉完整线程
+- [x] 第5步-入库：调用 knowledge_db 存入 SQLite + 保存原始 JSON
+- [x] 断点续传：collect_jobs.progress 维护“每关键词独立游标”，中断后可继续
+- [x] 并发控制：流式生产者/消费者并行（搜索+过滤+入队 与 下载+入库并行）
+- [x] max 限制语义：max-emails/max-threads 作为单轮预算，任务可保持 running 供下轮 --resume 续跑
+
+  进展更新（2026-04-14）：
+  - 已切换到流式并行入口 `run_collect_v2()`，`run_collect()` 保留兼容跳转。
+  - 下载队列由 `collect_queue` 驱动，失败重试后可恢复。
+  - `last_search_time` 保留为全局兼容字段，真实断点以 `progress` 中每关键词游标为准。
 
 ## TODO 3: batch_process.py — 批量处理+摘要反哺 ✅
 - [x] CLI 参数：--topic, --backend, --api-key, --workers, --summarize, --cross-analysis
