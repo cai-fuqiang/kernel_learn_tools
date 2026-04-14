@@ -307,10 +307,12 @@ def run_collect(args):
         if not thread_emails:
             thread_emails = [root_email]
 
-        # 标记相关性
+        # 标记相关性 + 关联 thread_id
+        thread_id = root_email.get("message_id", "")
         for em in thread_emails:
             em["relevance_score"] = root_email.get("relevance_score", 0)
             em["relevance_reason"] = root_email.get("relevance_reason", "")
+            em["thread_id"] = thread_id
 
         # 构建线程关系（纯 CPU 计算，不需要锁）
         thread_objs = []
