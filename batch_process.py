@@ -63,8 +63,16 @@ _SUMMARY_PROMPT = """你是一个 Linux 内核专家。请对以下内核邮件�
   "design_decisions": ["设计决策1", ...],
   "related_files": ["涉及的源码文件路径"],
   "related_functions": ["涉及的函数名"],
-  "tags": ["标签1", "标签2", ...]
+  "tags": ["标签1", "标签2", ...],
+  "topics": ["话题名1", "话题名2"]
 }}
+
+其中 topics 是这个线程所属的技术话题（可多个），用简短的英文名，例如：
+  "fair sleeper", "latency nice", "SCHED_DEADLINE", "CFS bandwidth",
+  "wakeup preemption", "autogroup", "RT scheduling", "load balancing"
+不要编造话题名，只从邮件内容中提取真正讨论的核心话题。
+
+{extra_prompt}
 
 只输出 JSON，不要其他内容。
 
@@ -92,7 +100,8 @@ def build_thread_context(thread: Dict, emails: List[Dict]) -> str:
     return "\n".join(parts)
 
 
-def summarize_thread(thread: Dict, emails: List[Dict], api_caller) -> Dict:
+def summarize_thread(thread: Dict, emails: List[Dict], api_caller,
+                     extra_prompt: str = "") -> Dict:
     """用 AI 对单个线程生成结构化摘要。"""
     emails_text = build_thread_context(thread, emails)
 
@@ -104,6 +113,7 @@ def summarize_thread(thread: Dict, emails: List[Dict], api_caller) -> Dict:
             participants.add(name)
 
     prompt = _SUMMARY_PROMPT.format(
+        extra_prompt=extra_prompt,
         subject=thread.get("subject", ""),
         participants=", ".join(list(participants)[:10]),
         date_range=f"{thread.get('start_date', '')} ~ {thread.get('end_date', '')}",
@@ -203,7 +213,7 @@ def query_knowledge(db: KnowledgeDB, query: str):
 # ======================================================================
 
 def run_summarize(args, db: KnowledgeDB):
-    """批量生成单线程摘要并反哺知识库。"""
+    """批量生成单线程摘要并反哺知识库，同时自动创建话题关联。"""
     from email_translator.translator import APITranslator
     api_caller = APITranslator(
         api_key=args.api_key,
@@ -211,6 +221,13 @@ def run_summarize(args, db: KnowledgeDB):
         model=args.model or "",
         timeout=120,
     )
+
+    # 加载话题配置获取额外 prompt
+    extra_prompt = ""
+    if args.topic_config:
+        from batch_collect import TopicConfig
+        topic_cfg = TopicConfig(args.topic_config)
+        extra_prompt = topic_cfg.ai_summary_extra
 
     threads = db.get_unprocessed_threads(limit=args.batch_size)
     if not threads:
@@ -230,13 +247,26 @@ def run_summarize(args, db: KnowledgeDB):
             continue
 
         # AI 生成摘要
-        summary = summarize_thread(thread, emails, api_caller)
+        summary = summarize_thread(thread, emails, api_caller,
+                                    extra_prompt=extra_prompt)
 
         # 写回知识库
         db.update_thread_summary(tid, summary)
 
+        # 自动创建/关联话题
+        topics = summary.get("topics", [])
+        if isinstance(topics, list):
+            for topic_name in topics:
+                topic_name = topic_name.strip()
+                if not topic_name:
+                    continue
+                topic_id = db.upsert_topic(name=topic_name)
+                db.link_thread_topic(tid, topic_id)
+                logger.info("    话题关联: %s → #%d", topic_name, topic_id)
+
         logger.info("    摘要: %s", (summary.get("summary", ""))[:80])
         logger.info("    标签: %s", summary.get("tags", []))
+        logger.info("    话题: %s", topics)
 
         time.sleep(0.5)  # 限速
 
@@ -945,6 +975,8 @@ def main():
                         help="对已处理的线程做跨线程综合分析")
     parser.add_argument("--translate", action="store_true",
                         help="批量翻译线程邮件，生成双语 HTML 文件")
+    parser.add_argument("--add-topic", default="",
+                        help="注册新话题 (如 --add-topic 'fair sleeper')")
     parser.add_argument("--query", default="",
                         help="全文搜索知识库")
     parser.add_argument("--stats", action="store_true",
@@ -963,6 +995,8 @@ def main():
     # 处理参数
     parser.add_argument("--topic", default="",
                         help="综合分析的主题描述 (--cross-analysis 时使用)")
+    parser.add_argument("--topic-config", default="",
+                        help="话题配置文件 (--summarize 时读取额外 prompt)")
     parser.add_argument("--batch-size", type=int, default=50,
                         help="每批处理的线程数 (默认 50)")
 
@@ -992,6 +1026,14 @@ def main():
     elif args.export_html:
         out = export_html(db, args.output or None)
         print(f"知识库 HTML 已导出: {out}")
+    elif args.add_topic:
+        topic_id = db.upsert_topic(name=args.add_topic)
+        logger.info("话题已注册: '%s' (id=%d)", args.add_topic, topic_id)
+        # 显示当前所有话题
+        topics = db.get_topics()
+        print(f"\n当前话题 ({len(topics)}):")
+        for t in topics:
+            print(f"  #{t['id']} {t['name']} ({t['thread_count']} threads)")
     elif args.query:
         query_knowledge(db, args.query)
     elif args.translate:

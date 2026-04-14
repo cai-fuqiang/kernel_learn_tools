@@ -4,6 +4,9 @@ data/
 # 翻译缓存
 data/.cache/
 
+# 配置文件（含 API 密钥）
+config.json
+
 # Python 缓存
 __pycache__/
 *.pyc

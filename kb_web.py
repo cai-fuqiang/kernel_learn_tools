@@ -50,7 +50,12 @@ def get_conn():
 
 def api_stats(conn):
     ec = conn.execute("SELECT COUNT(*) FROM emails").fetchone()[0]
-    tc = conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
+    tc = conn.execute("SELECT COUNT(*) FROM threads WHERE hidden = 0").fetchone()[0]
+    pc = conn.execute("SELECT COUNT(*) FROM threads WHERE processed = 1 AND hidden = 0").fetchone()[0]
+    try:
+        tpc = conn.execute("SELECT COUNT(*) FROM topics").fetchone()[0]
+    except Exception:
+        tpc = 0
     dr = conn.execute(
         "SELECT MIN(date) as d1, MAX(date) as d2 FROM emails"
     ).fetchone()
@@ -67,6 +72,7 @@ def api_stats(conn):
     """).fetchone()
     return {
         "email_count": ec, "thread_count": tc,
+        "processed_count": pc, "topic_count": tpc,
         "date_min": dr["d1"] or "", "date_max": dr["d2"] or "",
         "top_senders": [{"name": r["from_name"], "count": r["cnt"]} for r in top],
         "score_high": sd["hi"] or 0, "score_mid": sd["mid"] or 0, "score_low": sd["lo"] or 0,
@@ -108,10 +114,44 @@ def api_email_detail(conn, email_id):
 
 def api_threads(conn, page=1, per_page=30):
     offset = (page - 1) * per_page
-    total = conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM threads WHERE hidden = 0").fetchone()[0]
     rows = conn.execute("""
-        SELECT * FROM threads ORDER BY start_date DESC LIMIT ? OFFSET ?
+        SELECT * FROM threads WHERE hidden = 0 ORDER BY start_date DESC LIMIT ? OFFSET ?
     """, (per_page, offset)).fetchall()
+    return {
+        "total": total, "page": page, "per_page": per_page,
+        "pages": max(1, (total + per_page - 1) // per_page),
+        "threads": [dict(r) for r in rows],
+    }
+
+
+def api_topics(conn):
+    """获取所有话题及线程计数。"""
+    rows = conn.execute("""
+        SELECT t.*, COALESCE(c.cnt, 0) as thread_count
+        FROM topics t
+        LEFT JOIN (
+            SELECT topic_id, COUNT(*) as cnt FROM thread_topics GROUP BY topic_id
+        ) c ON c.topic_id = t.id
+        ORDER BY c.cnt DESC, t.name
+    """).fetchall()
+    return {"topics": [dict(r) for r in rows]}
+
+
+def api_topic_threads(conn, topic_id, page=1, per_page=30):
+    """获取话题下的线程列表。"""
+    offset = (page - 1) * per_page
+    total = conn.execute("""
+        SELECT COUNT(*) FROM threads t
+        JOIN thread_topics tt ON tt.thread_id = t.id
+        WHERE tt.topic_id = ? AND t.hidden = 0
+    """, (topic_id,)).fetchone()[0]
+    rows = conn.execute("""
+        SELECT t.* FROM threads t
+        JOIN thread_topics tt ON tt.thread_id = t.id
+        WHERE tt.topic_id = ? AND t.hidden = 0
+        ORDER BY t.start_date DESC LIMIT ? OFFSET ?
+    """, (topic_id, per_page, offset)).fetchall()
     return {
         "total": total, "page": page, "per_page": per_page,
         "pages": max(1, (total + per_page - 1) // per_page),
@@ -373,6 +413,16 @@ class KBHandler(BaseHTTPRequestHandler):
                 page=int(qp("page", "1")),
                 per_page=int(qp("per_page", "30")),
             ))
+        elif path == "/api/topics":
+            self._json_response(api_topics(self.conn))
+        elif path.startswith("/api/topics/") and path.endswith("/threads"):
+            # /api/topics/123/threads
+            topic_id = path.split("/")[3]
+            self._json_response(api_topic_threads(
+                self.conn, int(topic_id),
+                page=int(qp("page", "1")),
+                per_page=int(qp("per_page", "30")),
+            ))
         elif path == "/api/search":
             self._json_response(api_search(
                 self.conn, qp("q", ""), int(qp("limit", "100"))
@@ -435,6 +485,41 @@ class KBHandler(BaseHTTPRequestHandler):
             )
             status_code = 200 if "ok" in result else 409
             self._json_response(result, status_code)
+        elif path == "/api/topics":
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+            except json.JSONDecodeError:
+                self._json_response({"error": "无效 JSON"}, 400)
+                return
+            name = data.get("name", "").strip()
+            if not name:
+                self._json_response({"error": "话题名不能为空"}, 400)
+                return
+            from email_translator.knowledge_db import KnowledgeDB
+            kdb = KnowledgeDB()
+            topic_id = kdb.upsert_topic(
+                name=name,
+                display_name=data.get("display_name", ""),
+                description=data.get("description", ""),
+            )
+            self._json_response({"ok": True, "id": topic_id, "name": name})
+        elif path == "/api/thread/hide":
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+            except json.JSONDecodeError:
+                self._json_response({"error": "无效 JSON"}, 400)
+                return
+            thread_id = data.get("thread_id", "")
+            hidden = data.get("hidden", 1)
+            if not thread_id:
+                self._json_response({"error": "缺少 thread_id"}, 400)
+                return
+            self.conn.execute(
+                "UPDATE threads SET hidden = ? WHERE id = ?",
+                (hidden, thread_id)
+            )
+            self.conn.commit()
+            self._json_response({"ok": True})
         else:
             self._json_response({"error": "not found"}, 404)
 
@@ -557,6 +642,24 @@ tr:hover{background:var(--surface2);}
 .trans-progress .errors{font-size:11px;color:var(--red);margin-top:6px;max-height:80px;overflow-y:auto;}
 .btn-translate{display:inline-block;padding:3px 10px;font-size:11px;border:1px solid var(--orange);border-radius:4px;color:var(--orange);cursor:pointer;white-space:nowrap;background:none;}
 .btn-translate:hover{background:rgba(210,153,34,.15);}
+
+/* Topic cards */
+.topic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:24px;}
+.topic-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;transition:border-color .2s;}
+.topic-card:hover{border-color:var(--accent);}
+.topic-card .t-name{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:4px;}
+.topic-card .t-count{font-size:24px;font-weight:700;color:var(--text);}
+.topic-card .t-label{font-size:12px;color:var(--muted);}
+.topic-card .t-desc{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.4;}
+
+/* Summary card in thread list */
+.summary-line{font-size:12px;color:var(--muted);max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tags-line{margin-top:4px;}
+.tags-line .tag{display:inline-block;padding:1px 6px;margin-right:3px;font-size:10px;border-radius:8px;background:rgba(88,166,255,.1);color:var(--accent);border:1px solid rgba(88,166,255,.2);}
+
+/* Delete button */
+.btn-delete{display:inline-block;padding:3px 8px;font-size:11px;border:1px solid var(--red);border-radius:4px;color:var(--red);cursor:pointer;white-space:nowrap;background:none;margin-left:6px;}
+.btn-delete:hover{background:rgba(248,81,73,.15);}
 </style>
 </head>
 <body>
@@ -564,8 +667,9 @@ tr:hover{background:var(--surface2);}
   <div class="sidebar">
     <h2>Kernel KB</h2>
     <div class="nav-item active" onclick="navigate('stats')">Dashboard</div>
-    <div class="nav-item" onclick="navigate('emails')">Emails</div>
+    <div class="nav-item" onclick="navigate('topics')">Topics</div>
     <div class="nav-item" onclick="navigate('threads')">Threads</div>
+    <div class="nav-item" onclick="navigate('emails')">Emails</div>
     <div class="nav-item" onclick="navigate('search')">Search</div>
   </div>
   <div class="main" id="main"><div class="loading">Loading...</div></div>
@@ -628,16 +732,19 @@ tr:hover{background:var(--surface2);}
 </div>
 
 <script>
-var currentView='stats', emailPage=1, threadPage=1, emailSort='date', emailOrder='desc', emailSearch='';
+var currentView='stats', emailPage=1, threadPage=1, topicThreadPage=1, emailSort='date', emailOrder='desc', emailSearch='', currentTopicId=0, currentTopicName='';
 
 function $(id){return document.getElementById(id);}
 function esc(s){if(!s)return'';var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function parseTags(s){if(!s)return[];try{var r=JSON.parse(s);return Array.isArray(r)?r:[];}catch(e){return s?[s]:[];}}
 function navigate(view){
   currentView=view;
-  document.querySelectorAll('.nav-item').forEach(function(n,i){n.classList.toggle('active',['stats','emails','threads','search'][i]===view);});
+  var navs=['stats','topics','threads','emails','search'];
+  document.querySelectorAll('.nav-item').forEach(function(n,i){n.classList.toggle('active',navs[i]===view);});
   if(view==='stats')loadStats();
-  else if(view==='emails'){emailPage=1;loadEmails();}
+  else if(view==='topics')loadTopics();
   else if(view==='threads'){threadPage=1;loadThreads();}
+  else if(view==='emails'){emailPage=1;loadEmails();}
   else if(view==='search')showSearch();
 }
 
@@ -661,9 +768,9 @@ function loadStats(){
       '<div class="stats-grid">'+
         '<div class="stat-card"><div class="num">'+d.email_count+'</div><div class="label">Emails</div></div>'+
         '<div class="stat-card"><div class="num">'+d.thread_count+'</div><div class="label">Threads</div></div>'+
+        '<div class="stat-card" style="cursor:pointer" onclick="navigate(\'topics\')"><div class="num">'+d.topic_count+'</div><div class="label">Topics</div></div>'+
+        '<div class="stat-card"><div class="num">'+d.processed_count+'</div><div class="label">Summarized</div></div>'+
         '<div class="stat-card"><div class="num">'+d.score_high+'</div><div class="label">High Relevance</div></div>'+
-        '<div class="stat-card"><div class="num">'+d.score_mid+'</div><div class="label">Medium</div></div>'+
-        '<div class="stat-card"><div class="num">'+d.score_low+'</div><div class="label">Low / Unscored</div></div>'+
         '<div class="stat-card"><div class="num" style="font-size:12px;color:var(--muted);padding-top:8px">'+esc(d.date_min?d.date_min.substring(0,16):'')+'<br>~<br>'+esc(d.date_max?d.date_max.substring(0,16):'')+'</div><div class="label">Date Range</div></div>'+
       '</div>'+
       '<div class="bar-chart"><h3>Top Senders</h3>'+bars+'</div>';
@@ -708,12 +815,80 @@ function toggleSort(col){
   emailPage=1;loadEmails();
 }
 
+// ── Topics ──
+function loadTopics(){
+  $('main').innerHTML='<div class="loading">Loading...</div>';
+  fetch('/api/topics').then(function(r){return r.json();}).then(function(d){
+    var cards=d.topics.map(function(t){
+      return '<div class="topic-card" onclick="viewTopic('+t.id+',\''+esc(t.name)+'\')">'+
+        '<div class="t-name">'+esc(t.display_name||t.name)+'</div>'+
+        '<div class="t-count">'+t.thread_count+'</div>'+
+        '<div class="t-label">threads</div>'+
+        (t.description?'<div class="t-desc">'+esc(t.description)+'</div>':'')+
+      '</div>';
+    }).join('');
+    if(!d.topics.length)cards='<div class="loading">暂无话题。运行 batch_process.py --summarize 后自动生成。</div>';
+    $('main').innerHTML=
+      '<div class="section-title">Topics ('+d.topics.length+')</div>'+
+      '<div class="topic-grid">'+cards+'</div>';
+  });
+}
+function viewTopic(id,name){
+  currentTopicId=id;
+  currentTopicName=name;
+  topicThreadPage=1;
+  loadTopicThreads(id,name);
+}
+function loadCurrentTopicThreads(){loadTopicThreads(currentTopicId,currentTopicName);}
+function loadTopicThreads(id,name){
+  $('main').innerHTML='<div class="loading">Loading...</div>';
+  fetch('/api/topics/'+id+'/threads?page='+topicThreadPage+'&per_page=30').then(function(r){return r.json();}).then(function(d){
+    var rows=d.threads.map(function(t){
+      var tags=parseTags(t.tags);
+      var tagsHtml=tags.map(function(tg){return '<span class="tag">'+esc(tg)+'</span>';}).join('');
+      var summary=(t.summary_zh||'').substring(0,100);
+      var transBtn='';
+      var safeId=encodeURIComponent(t.id);
+      if(t.translated_html_path){
+        transBtn='<a href="/translated/'+safeId+'" target="_blank" style="display:inline-block;padding:3px 10px;font-size:11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent);text-decoration:none;white-space:nowrap;">&#127760; 查看翻译</a>';
+      }
+      return '<tr>'+
+        '<td>'+esc(t.subject)+'<br><span class="summary-line">'+esc(summary)+'</span>'+(tagsHtml?'<div class="tags-line">'+tagsHtml+'</div>':'')+'</td>'+
+        '<td>'+t.email_count+'</td>'+
+        '<td style="white-space:nowrap">'+esc(t.start_date?t.start_date.substring(0,10):'')+'</td>'+
+        '<td>'+transBtn+
+          '<span class="btn-delete" onclick="hideThread(\''+safeId+'\')">&#128465;</span>'+
+        '</td>'+
+      '</tr>';
+    }).join('');
+    $('main').innerHTML=
+      '<div class="section-title"><span style="cursor:pointer;color:var(--accent)" onclick="loadTopics()">Topics</span> / '+esc(name)+' ('+d.total+')</div>'+
+      '<div class="table-wrap"><table>'+
+        '<tr><th>Subject / Summary</th><th>Emails</th><th>Date</th><th>Actions</th></tr>'+
+        rows+
+      '</table></div>'+
+      pagerHtml(d.page,d.pages,'topicThreadPage','loadCurrentTopicThreads');
+  });
+}
+function hideThread(encodedId){
+  if(!confirm('确认隐藏此线程？'))return;
+  fetch('/api/thread/hide',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({thread_id:decodeURIComponent(encodedId),hidden:1})
+  }).then(function(){
+    if(currentTopicId)loadTopicThreads(currentTopicId,'');
+    else loadThreads();
+  });
+}
+
 // ── Threads ──
 function loadThreads(){
   $('main').innerHTML='<div class="loading">Loading...</div>';
   fetch('/api/threads?page='+threadPage+'&per_page=30').then(function(r){return r.json();}).then(function(d){
     var untranslatedIds=[];
     var rows=d.threads.map(function(t){
+      var tags=parseTags(t.tags);
+      var tagsHtml=tags.map(function(tg){return '<span class="tag">'+esc(tg)+'</span>';}).join('');
+      var summary=(t.summary_zh||'').substring(0,100);
       var transBtn='';
       var safeId=encodeURIComponent(t.id);
       if(t.translated_html_path){
@@ -723,10 +898,10 @@ function loadThreads(){
         untranslatedIds.push(t.id);
         transBtn='<span class="btn-translate" onclick="openTransDialogEnc(\''+safeId+'\')">&#9654; 翻译</span>';
       }
+      transBtn+='<span class="btn-delete" onclick="hideThread(\''+safeId+'\')">&#128465;</span>';
       return '<tr>'+
-        '<td>'+esc(t.subject)+'</td>'+
+        '<td>'+esc(t.subject)+(summary?'<br><span class="summary-line">'+esc(summary)+'</span>':'')+(tagsHtml?'<div class="tags-line">'+tagsHtml+'</div>':'')+'</td>'+
         '<td>'+t.email_count+'</td>'+
-        '<td>'+t.participant_count+'</td>'+
         '<td style="white-space:nowrap">'+esc(t.start_date?t.start_date.substring(0,16):'')+'</td>'+
         '<td>'+transBtn+'</td>'+
       '</tr>';
@@ -740,7 +915,7 @@ function loadThreads(){
     $('main').innerHTML=
       '<div class="section-title">Threads ('+d.total+')'+batchBtn+'</div>'+
       '<div class="table-wrap"><table>'+
-        '<tr><th>Subject</th><th>Emails</th><th>Participants</th><th>Start Date</th><th>Translation</th></tr>'+
+        '<tr><th>Subject / Summary</th><th>Emails</th><th>Date</th><th>Actions</th></tr>'+
         rows+
       '</table></div>'+
       pagerHtml(d.page,d.pages,'threadPage','loadThreads');
