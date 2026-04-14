@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 class KnowledgeDB:
@@ -103,14 +103,54 @@ class KnowledgeDB:
                     total_found INTEGER DEFAULT 0,
                     total_relevant INTEGER DEFAULT 0,
                     progress    TEXT DEFAULT '',
+                    last_search_time TEXT DEFAULT '',  -- 记录搜索进度，支持断点续传
                     created_at  REAL NOT NULL,
                     updated_at  REAL NOT NULL
                 );
+
+                -- 采集队列：存储待下载的线程
+                CREATE TABLE IF NOT EXISTS collect_queue (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id      INTEGER NOT NULL,
+                    root_message_id TEXT NOT NULL,
+                    subject     TEXT DEFAULT '',
+                    source_url  TEXT DEFAULT '',
+                    relevance_score REAL DEFAULT 0,
+                    relevance_reason TEXT DEFAULT '',
+                    status      TEXT DEFAULT 'pending',  -- pending, downloading, completed, failed
+                    priority    INTEGER DEFAULT 0,       -- 优先级，用于排序
+                    retry_count INTEGER DEFAULT 0,
+                    created_at  REAL NOT NULL,
+                    updated_at  REAL NOT NULL,
+                    UNIQUE(job_id, root_message_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_collect_queue_status ON collect_queue(status);
+                CREATE INDEX IF NOT EXISTS idx_collect_queue_job ON collect_queue(job_id);
 
                 CREATE INDEX IF NOT EXISTS idx_emails_thread   ON emails(thread_id);
                 CREATE INDEX IF NOT EXISTS idx_emails_date      ON emails(date);
                 CREATE INDEX IF NOT EXISTS idx_emails_processed ON emails(processed);
                 CREATE INDEX IF NOT EXISTS idx_threads_processed ON threads(processed);
+
+                CREATE TABLE IF NOT EXISTS topics (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name        TEXT UNIQUE NOT NULL,
+                    display_name TEXT DEFAULT '',
+                    description TEXT DEFAULT '',
+                    keywords    TEXT DEFAULT '',
+                    created_at  REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS thread_topics (
+                    thread_id   TEXT NOT NULL,
+                    topic_id    INTEGER NOT NULL,
+                    confidence  REAL DEFAULT 1.0,
+                    created_at  REAL NOT NULL,
+                    PRIMARY KEY (thread_id, topic_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_thread_topics_topic ON thread_topics(topic_id);
             """)
 
             # FTS5 虚拟表（忽略已存在的错误）
@@ -126,6 +166,14 @@ class KnowledgeDB:
             try:
                 self.conn.execute(
                     "ALTER TABLE threads ADD COLUMN translated_html_path TEXT DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # 列已存在
+
+            # 兼容旧数据库：补加 hidden 列
+            try:
+                self.conn.execute(
+                    "ALTER TABLE threads ADD COLUMN hidden INTEGER DEFAULT 0"
                 )
             except sqlite3.OperationalError:
                 pass  # 列已存在
@@ -348,6 +396,94 @@ class KnowledgeDB:
             )
 
     # ------------------------------------------------------------------
+    # 采集队列操作
+    # ------------------------------------------------------------------
+
+    def add_to_queue(self, job_id: int, root_email: Dict, priority: int = 0) -> bool:
+        """添加线程到下载队列"""
+        root_mid = root_email.get("message_id", "")
+        if not root_mid:
+            return False
+        
+        with self.conn:
+            try:
+                self.conn.execute("""
+                    INSERT OR IGNORE INTO collect_queue
+                    (job_id, root_message_id, subject, source_url, 
+                     relevance_score, relevance_reason, priority, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    job_id, root_mid, root_email.get("subject", ""),
+                    root_email.get("source_url", ""),
+                    root_email.get("relevance_score", 0),
+                    root_email.get("relevance_reason", ""),
+                    priority, time.time(), time.time()
+                ))
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def get_queue_items(self, job_id: int, status: str = "pending", limit: int = 100) -> List[Dict]:
+        """获取队列中的项目"""
+        rows = self.conn.execute("""
+            SELECT * FROM collect_queue 
+            WHERE job_id = ? AND status = ?
+            ORDER BY priority DESC, created_at ASC
+            LIMIT ?
+        """, (job_id, status, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_queue_status(self, queue_id: int, status: str, retry_count: int = None):
+        """更新队列项目状态"""
+        if retry_count is not None:
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE collect_queue 
+                    SET status = ?, retry_count = ?, updated_at = ?
+                    WHERE id = ?
+                """, (status, retry_count, time.time(), queue_id))
+        else:
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE collect_queue 
+                    SET status = ?, updated_at = ?
+                    WHERE id = ?
+                """, (status, time.time(), queue_id))
+
+    def get_queue_stats(self, job_id: int) -> Dict:
+        """获取队列统计信息"""
+        stats = {}
+        for status in ["pending", "downloading", "completed", "failed"]:
+            count = self.conn.execute("""
+                SELECT COUNT(*) FROM collect_queue 
+                WHERE job_id = ? AND status = ?
+            """, (job_id, status)).fetchone()[0]
+            stats[status] = count
+        total = self.conn.execute("""
+            SELECT COUNT(*) FROM collect_queue WHERE job_id = ?
+        """, (job_id,)).fetchone()[0]
+        stats["total"] = total
+        return stats
+
+    def get_failed_queue_items(self, job_id: int, max_retries: int = 3) -> List[Dict]:
+        """获取失败但可重试的队列项目"""
+        rows = self.conn.execute("""
+            SELECT * FROM collect_queue 
+            WHERE job_id = ? AND status = 'failed' AND retry_count < ?
+            ORDER BY retry_count ASC, created_at ASC
+        """, (job_id, max_retries)).fetchall()
+        return [dict(r) for r in rows]
+
+    def reset_queue_status(self, job_id: int, status: str = "pending"):
+        """重置队列状态（用于断点续传）"""
+        with self.conn:
+            self.conn.execute("""
+                UPDATE collect_queue 
+                SET status = ?, updated_at = ?
+                WHERE job_id = ? AND status IN ('downloading', 'failed')
+            """, (status, time.time(), job_id))
+
+    # ------------------------------------------------------------------
     # 全文搜索
     # ------------------------------------------------------------------
 
@@ -362,6 +498,92 @@ class KnowledgeDB:
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
+    # 话题操作
+    # ------------------------------------------------------------------
+
+    def upsert_topic(self, name: str, display_name: str = "",
+                     description: str = "", keywords: str = "") -> int:
+        """创建或更新话题。返回 topic_id。"""
+        with self.conn:
+            row = self.conn.execute(
+                "SELECT id FROM topics WHERE name = ?", (name,)
+            ).fetchone()
+            if row:
+                self.conn.execute("""
+                    UPDATE topics SET display_name = ?, description = ?, keywords = ?
+                    WHERE name = ?
+                """, (display_name or name, description, keywords, name))
+                return row[0]
+            else:
+                cur = self.conn.execute("""
+                    INSERT INTO topics (name, display_name, description, keywords, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (name, display_name or name, description, keywords, time.time()))
+                return cur.lastrowid
+
+    def get_topics(self) -> List[Dict]:
+        """获取所有话题，包含线程计数。"""
+        rows = self.conn.execute("""
+            SELECT t.*, COALESCE(c.cnt, 0) as thread_count
+            FROM topics t
+            LEFT JOIN (
+                SELECT topic_id, COUNT(*) as cnt FROM thread_topics GROUP BY topic_id
+            ) c ON c.topic_id = t.id
+            ORDER BY c.cnt DESC, t.name
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_topic_by_id(self, topic_id: int) -> Optional[Dict]:
+        row = self.conn.execute(
+            "SELECT * FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_topic_by_name(self, name: str) -> Optional[Dict]:
+        row = self.conn.execute(
+            "SELECT * FROM topics WHERE name = ?", (name,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def link_thread_topic(self, thread_id: str, topic_id: int,
+                          confidence: float = 1.0):
+        """关联线程到话题。"""
+        with self.conn:
+            self.conn.execute("""
+                INSERT OR REPLACE INTO thread_topics
+                (thread_id, topic_id, confidence, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (thread_id, topic_id, confidence, time.time()))
+
+    def get_topic_threads(self, topic_id: int, include_hidden: bool = False,
+                          limit: int = 200) -> List[Dict]:
+        """获取话题下的所有线程。"""
+        hidden_clause = "" if include_hidden else "AND t.hidden = 0"
+        rows = self.conn.execute(f"""
+            SELECT t.* FROM threads t
+            JOIN thread_topics tt ON tt.thread_id = t.id
+            WHERE tt.topic_id = ? {hidden_clause}
+            ORDER BY t.start_date DESC LIMIT ?
+        """, (topic_id, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_thread_topic_ids(self, thread_id: str) -> List[int]:
+        """获取线程关联的所有话题 ID。"""
+        rows = self.conn.execute(
+            "SELECT topic_id FROM thread_topics WHERE thread_id = ?",
+            (thread_id,)
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def set_thread_hidden(self, thread_id: str, hidden: int = 1):
+        """软删除/恢复线程。"""
+        with self.conn:
+            self.conn.execute(
+                "UPDATE threads SET hidden = ? WHERE id = ?",
+                (hidden, thread_id)
+            )
+
+    # ------------------------------------------------------------------
     # 统计
     # ------------------------------------------------------------------
 
@@ -372,9 +594,15 @@ class KnowledgeDB:
         processed_threads = self.conn.execute(
             "SELECT COUNT(*) FROM threads WHERE processed = 1"
         ).fetchone()[0]
+        topic_count = self.conn.execute("SELECT COUNT(*) FROM topics").fetchone()[0]
+        hidden_threads = self.conn.execute(
+            "SELECT COUNT(*) FROM threads WHERE hidden = 1"
+        ).fetchone()[0]
         return {
             "emails": email_count,
             "threads": thread_count,
             "reports": report_count,
             "processed_threads": processed_threads,
+            "topics": topic_count,
+            "hidden_threads": hidden_threads,
         }

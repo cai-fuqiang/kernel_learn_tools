@@ -59,7 +59,25 @@ class LoreClient:
 
     def search_emails(self, topic:str, list_name:str="all",
                       max_emails:int=20, author:Optional[str]=None,
-                      date_from:Optional[str]=None, date_to:Optional[str]=None) -> List[Dict]:
+                      date_from:Optional[str]=None, date_to:Optional[str]=None,
+                      timeout:Optional[int]=None) -> List[Dict]:
+        """搜索邮件，支持超时保护
+        
+        Args:
+            topic: 搜索主题
+            list_name: 邮件列表名称
+            max_emails: 最大邮件数量
+            author: 作者过滤
+            date_from: 开始日期
+            date_to: 结束日期
+            timeout: 单次搜索超时时间（秒），None表示使用默认超时
+            
+        Returns:
+            邮件列表
+        """
+        # 使用指定的超时时间或默认超时
+        search_timeout = timeout if timeout is not None else self.timeout
+        
         lst = KNOWN_LISTS.get(list_name, list_name)
         author_kw = author.lower().strip() if author else ""
         query = topic
@@ -67,9 +85,17 @@ class LoreClient:
             df=date_from or "2005-01-01"
             dt=date_to or datetime.now().strftime("%Y-%m-%d")
             query=f"({topic}) d:{df}..{dt}"
-        logger.info(f"搜索 lore.kernel.org/{lst}: query={query!r}, max={max_emails}")
+        logger.info(f"搜索 lore.kernel.org/{lst}: query={query!r}, max={max_emails}, timeout={search_timeout}s")
+        
         results=[]; page=1
+        start_time = time.time()
+        
         while len(results) < max_emails:
+            # 检查总搜索时间是否超过超时限制
+            if search_timeout and (time.time() - start_time) > search_timeout:
+                logger.warning(f"搜索超时 ({search_timeout}s)，当前已获取 {len(results)} 封邮件")
+                break
+                
             batch=self._fetch_page(lst, query, page, per_page=min(200,max_emails*3))
             if not batch: break
             for em in batch:
@@ -78,7 +104,9 @@ class LoreClient:
                 results.append(em)
             if len(batch)<200: break
             page+=1; time.sleep(self.delay)
-        logger.info(f"共获取 {len(results)} 封邮件")
+            
+        elapsed = time.time() - start_time
+        logger.info(f"搜索完成: {len(results)} 封邮件, 耗时 {elapsed:.1f}s")
         return results
 
     def save_emails(self, emails:List[Dict], topic:str) -> List[str]:
