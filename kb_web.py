@@ -234,7 +234,7 @@ class TranslateManager:
         from email_translator.translator import create_translator
         from email_translator.translation_cache import TranslationCache
         from translate_context import (
-            CachedTranslator, should_translate, translate_body,
+            CachedTranslator, should_translate, translate_body_aligned,
             generate_html, _split_body_and_diff, _translate_diff_comments,
         )
 
@@ -305,7 +305,7 @@ class TranslateManager:
                 for i, em in enumerate(emails):
                     body = em.get("body", "")
                     if should_translate(body):
-                        translated[f"email_{i}"] = translate_body(
+                        translated[f"email_{i}"] = translate_body_aligned(
                             translator, body)
 
                 # 翻译 diff 注释

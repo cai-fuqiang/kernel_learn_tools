@@ -117,7 +117,7 @@ class BaseTranslator:
                 return text, ""
             logger.warning(f"翻译失败 (尝试 {attempt}/{self.max_retries}): {error}")
             if attempt < self.max_retries:
-                time.sleep(2 ** attempt)
+                time.sleep(min(2 ** attempt, 4))  # 退避上限 4 秒
         return "", f"已重试 {self.max_retries} 次仍失败：{error}"
 
     def _call(self, prompt: str) -> Tuple[str, str]:
@@ -264,7 +264,7 @@ class GoogleTranslator(BaseTranslator):
     ENDPOINT = "https://translate.googleapis.com/translate_a/single"
 
     def __init__(self, source: str = "en", target: str = "zh-CN",
-                 timeout: int = 30, max_retries: int = 3,
+                 timeout: int = 15, max_retries: int = 2,
                  batch_size: int = 5, proxy: str = None):
         super().__init__(max_retries=max_retries, batch_size=batch_size, proxy=proxy)
         self.source  = source
@@ -289,17 +289,47 @@ class GoogleTranslator(BaseTranslator):
         return result
 
     def _translate_text(self, text: str) -> Tuple[str, str]:
-        """调用 Google 翻译接口，返回 (translated, error)"""
-        from urllib.parse import urlencode, quote
-        # Google 翻译接口每次最多约 5000 字符，超长自动分段
-        chunks = self._chunk_text(text, max_len=4000)
-        parts  = []
-        for chunk in chunks:
+        """调用 Google 翻译接口，返回 (translated, error)。
+
+        说明：Google 的 GET 接口对 URL 长度较敏感，过长会返回 400。
+        这里采用更小分段 + 400 自动二分重试，避免大正文卡死。
+        """
+
+        def _translate_chunk_resilient(chunk: str, depth: int = 0) -> Tuple[str, str]:
             translated, error = self._call_with_retry(chunk)
+            if not error:
+                return translated, ""
+            # 针对 400 自动二分降级，最多递归 6 层
+            if "HTTP Error 400" in error and len(chunk) > 200 and depth < 6:
+                mid = len(chunk) // 2
+                left, right = chunk[:mid], chunk[mid:]
+                ltxt, lerr = _translate_chunk_resilient(left, depth + 1)
+                if lerr:
+                    return "", lerr
+                rtxt, rerr = _translate_chunk_resilient(right, depth + 1)
+                if rerr:
+                    return "", rerr
+                return (ltxt + "\n" + rtxt).strip(), ""
+            return "", error
+
+        # 保守分段，降低 URL 超长概率
+        chunks = self._chunk_text(text, max_len=1200)
+        parts = []
+        for chunk in chunks:
+            translated, error = _translate_chunk_resilient(chunk)
             if error:
                 return "", error
             parts.append(translated)
+        if not parts:
+            return "", ""
         return "\n".join(parts), ""
+
+    @staticmethod
+    def _hard_split_by_len(text: str, max_len: int) -> List[str]:
+        """按固定长度硬切分，兜底使用。"""
+        if len(text) <= max_len:
+            return [text]
+        return [text[i:i + max_len] for i in range(0, len(text), max_len)]
 
     def translate_text(self, text: str) -> Tuple[str, str]:
         """覆盖基类：使用 Google 翻译的 _translate_text"""
@@ -336,19 +366,32 @@ class GoogleTranslator(BaseTranslator):
 
     @staticmethod
     def _chunk_text(text: str, max_len: int = 4000) -> List[str]:
-        """将长文本按段落切分，每段不超过 max_len 字符"""
+        """将长文本按段落切分，每段不超过 max_len 字符。"""
         if len(text) <= max_len:
             return [text]
-        chunks, current = [], []
+
+        chunks: List[str] = []
+        current: List[str] = []
         current_len = 0
+
         for para in text.splitlines(keepends=True):
+            # 单段过长时，先落盘当前段，再对该段做硬切分
+            if len(para) > max_len:
+                if current:
+                    chunks.append("".join(current))
+                    current, current_len = [], 0
+                chunks.extend(GoogleTranslator._hard_split_by_len(para, max_len))
+                continue
+
             if current_len + len(para) > max_len and current:
                 chunks.append("".join(current))
                 current, current_len = [], 0
             current.append(para)
             current_len += len(para)
+
         if current:
             chunks.append("".join(current))
+
         return chunks or [text]
 
 

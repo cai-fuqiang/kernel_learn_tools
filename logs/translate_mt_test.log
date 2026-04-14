@@ -1,0 +1,10 @@
+19:47:51 INFO  准备翻译 10 个线程...
+19:47:51 INFO  翻译缓存: 1045 条已缓存
+19:47:51 INFO  [1/10] 翻译线程: [PATCH tip/core/rcu 0/88] Commits for 4.13
+19:47:51 INFO  [4/10] 翻译线程: [PATCH v7 00/37] tracing: Inter-event (e.g. latency) support
+19:47:51 INFO  [2/10] 翻译线程: [PATCH v2 00/35] Andes(nds32) Linux Kernel Port
+19:47:51 INFO  [3/10] 翻译线程: [RFC][PATCHv6 00/12] printk: introduce printing kernel threa
+19:47:51 INFO    [1/10] 邮件数: 104
+19:47:51 INFO    [3/10] 邮件数: 79
+19:47:51 INFO    [2/10] 邮件数: 92
+19:47:51 INFO    [4/10] 邮件数: 46

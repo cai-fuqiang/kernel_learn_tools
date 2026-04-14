@@ -41,11 +41,32 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from email_translator.knowledge_db import KnowledgeDB
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-5s %(message)s",
-    datefmt="%H:%M:%S",
-)
+class _FlushHandler(logging.StreamHandler):
+    """每条日志后立即 flush，确保管道/重定向下实时输出"""
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+
+# 同时输出到终端和日志文件
+_handler_stdout = _FlushHandler(sys.stdout)
+_handler_stdout.setFormatter(logging.Formatter(
+    "%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S"
+))
+logging.root.handlers.clear()
+logging.root.addHandler(_handler_stdout)
+
+# 如果设置了 LOG_FILE 环境变量，同时写文件
+import os as _os
+_log_file = _os.environ.get("LOG_FILE")
+if _log_file:
+    _handler_file = logging.FileHandler(_log_file, mode="w", encoding="utf-8")
+    _handler_file.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S"
+    ))
+    logging.root.addHandler(_handler_file)
+
+logging.root.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -733,7 +754,7 @@ def run_translate(args, db: KnowledgeDB):
     from email_translator.translator import create_translator
     from email_translator.translation_cache import TranslationCache
     from translate_context import (
-        CachedTranslator, should_translate, translate_body,
+        CachedTranslator, should_translate, translate_body_aligned,
         generate_html, _build_thread_tree, _split_body_and_diff,
         _translate_diff_comments,
     )
@@ -762,27 +783,40 @@ def run_translate(args, db: KnowledgeDB):
 
     logger.info("准备翻译 %d 个线程...", len(threads))
 
-    # 初始化翻译器
+    # 初始化翻译器参数（多线程下按线程创建独立实例，避免共享对象导致并发异常）
     backend = args.backend or "google"
     proxy = getattr(args, "proxy", None) or None
-    if backend == "api":
-        if not args.api_key:
-            logger.error("--backend api 需要 --api-key")
-            return
-        translator = create_translator(
-            "api", api_key=args.api_key, provider=args.api_provider,
-            model=args.model or None, proxy=proxy,
-        )
-    else:
-        translator = create_translator(backend, proxy=proxy)
+    if backend == "api" and not args.api_key:
+        logger.error("--backend api 需要 --api-key")
+        return
 
-    # 包装翻译缓存
-    cache = TranslationCache()
-    translator = CachedTranslator(translator, cache, backend)
-    cache_size = cache.size()
-    if cache_size > 0:
-        logger.info("翻译缓存: %d 条已缓存", cache_size)
+    # 缓存基线（仅用于展示）
+    cache_baseline = TranslationCache().size()
+    if cache_baseline > 0:
+        logger.info("翻译缓存: %d 条已缓存", cache_baseline)
 
+    import threading
+    _tls = threading.local()
+
+    def _create_thread_translator():
+        """为当前线程创建独立翻译器+缓存包装。"""
+        if backend == "api":
+            base_translator = create_translator(
+                "api", api_key=args.api_key, provider=args.api_provider,
+                model=args.model or None, proxy=proxy,
+            )
+        else:
+            base_translator = create_translator(backend, proxy=proxy)
+        local_cache = TranslationCache()
+        return CachedTranslator(base_translator, local_cache, backend)
+
+    def _get_thread_ctx():
+        """获取线程局部上下文：独立 DB 连接与翻译器。"""
+        if not hasattr(_tls, "db"):
+            _tls.db = KnowledgeDB(db.db_path)
+        if not hasattr(_tls, "translator"):
+            _tls.translator = _create_thread_translator()
+        return _tls.db, _tls.translator
     workers = max(1, getattr(args, "workers", 1) or 1)
     output_dir = OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -796,12 +830,14 @@ def run_translate(args, db: KnowledgeDB):
     # ── 单个线程翻译函数（可被线程池调用）──
     def _translate_one_thread(idx, thread, total):
         """翻译单个线程，返回 (thread_id, success: bool)"""
+        local_db, local_translator = _get_thread_ctx()
         tid = thread["id"]
         subject = thread.get("subject", "(无主题)")
+        t_start = time.time()
         logger.info("[%d/%d] 翻译线程: %s", idx, total, subject[:60])
 
-        # 获取线程邮件
-        emails_db = db.get_thread_emails(tid)
+        # 获取线程邮件（线程局部 DB 连接）
+        emails_db = local_db.get_thread_emails(tid)
         if not emails_db:
             logger.warning("  [%d/%d] 线程无邮件，跳过", idx, total)
             return tid, False
@@ -818,26 +854,112 @@ def run_translate(args, db: KnowledgeDB):
             if should_translate(body):
                 tasks.append((i, em))
 
-        # 翻译邮件正文（线程内串行，避免 Google 限流）
+        logger.info("  [%d/%d] 需翻译: %d/%d 封", idx, total, len(tasks), len(emails))
+
+        # 翻译邮件正文（主线程串行，实时输出进度）
+        # 单封邮件超时保护：基础 60s + 每 1KB body 10s，上限 300s
+        from concurrent.futures import ThreadPoolExecutor as _SinglePool
+        from concurrent.futures import TimeoutError as _Timeout
+
         done = 0
+        skipped_emails = 0
+        net_requests = 0
+        total_tasks = len(tasks)
+
+        def _email_timeout(body_len):
+            return min(60 + body_len // 1024 * 10, 300)
+
         for i, em in tasks:
             done += 1
-            translated[f"email_{i}"] = translate_body(translator, em.get("body", ""))
-            if done % 5 == 0:
-                time.sleep(0.3)
+            subj_short = em.get("subject", "")[:50]
+            body_text = em.get("body", "")
+            timeout_s = _email_timeout(len(body_text))
+            logger.info("    [%d/%d] email_%d: %s (body=%dB, timeout=%ds)",
+                        done, total_tasks, i, subj_short,
+                        len(body_text), timeout_s)
+            sys.stdout.flush()
+            t0 = time.time()
 
-        # 翻译邮件内 diff 注释
+            def _para_cb(p_done, p_total, is_tr, _i=i):
+                if is_tr:
+                    logger.info("      email_%d 段落 %d/%d", _i, p_done, p_total)
+
+            try:
+                # 使用单线程 pool + timeout 防止单封邮件无限卡住
+                with _SinglePool(max_workers=1) as _sp:
+                    _fut = _sp.submit(
+                        translate_body_aligned,
+                        local_translator, body_text,
+                        progress_cb=_para_cb)
+                    translated[f"email_{i}"] = _fut.result(timeout=timeout_s)
+            except _Timeout:
+                skipped_emails += 1
+                elapsed = time.time() - t0
+                logger.warning("    [%d/%d] email_%d 超时 (%.0fs > %ds)，跳过",
+                               done, total_tasks, i, elapsed, timeout_s)
+                continue
+            except Exception as exc:
+                skipped_emails += 1
+                logger.warning("    [%d/%d] email_%d 异常: %s",
+                               done, total_tasks, i, exc)
+                continue
+            elapsed = time.time() - t0
+            cache_hit = getattr(local_translator, "last_cache_hit", False)
+            logger.info("    [%d/%d] email_%d 完成: %.1fs %s",
+                        done, total_tasks, i, elapsed,
+                        "(缓存)" if cache_hit else "(网络)")
+            if not cache_hit:
+                net_requests += 1
+                if net_requests % 2 == 0:
+                    time.sleep(0.5)
+
+        # 翻译邮件内 diff 注释（只处理小 diff，大 diff 注释翻译性价比低）
+        _DIFF_MAX_SIZE = 8192  # 超过 8KB 的 diff 跳过注释翻译
         diff_tasks = []
+        diff_skipped_large = 0
         for i, em in enumerate(emails):
             _, em_diff = _split_body_and_diff(em.get("body", ""))
             if em_diff:
-                diff_tasks.append((i, em_diff))
+                if len(em_diff) > _DIFF_MAX_SIZE:
+                    diff_skipped_large += 1
+                else:
+                    diff_tasks.append((i, em_diff))
 
-        for i, em_diff in diff_tasks:
-            translated[f"diff_{i}"] = _translate_diff_comments(translator, em_diff)
+        if diff_tasks or diff_skipped_large:
+            if diff_skipped_large:
+                logger.info("  [%d/%d] diff注释: %d 个待翻译, %d 个大diff已跳过 (>%dB)",
+                            idx, total, len(diff_tasks), diff_skipped_large, _DIFF_MAX_SIZE)
+            if diff_tasks:
+                logger.info("  [%d/%d] 翻译 %d 个 diff 注释...", idx, total, len(diff_tasks))
+            t_diff = time.time()
+            diff_done = 0
+            for di, (i, em_diff) in enumerate(diff_tasks, 1):
+                diff_done += 1
+                diff_timeout = min(60 + len(em_diff) // 1024 * 10, 180)
+                logger.info("    diff [%d/%d] email_%d (%dB, timeout=%ds)",
+                            diff_done, len(diff_tasks), i, len(em_diff), diff_timeout)
+                t_d0 = time.time()
+                try:
+                    with _SinglePool(max_workers=1) as _dsp:
+                        _dfut = _dsp.submit(
+                            _translate_diff_comments, local_translator, em_diff)
+                        translated[f"diff_{i}"] = _dfut.result(timeout=diff_timeout)
+                except _Timeout:
+                    logger.warning("    diff [%d/%d] email_%d 超时 (>%ds)，跳过",
+                                   diff_done, len(diff_tasks), i, diff_timeout)
+                except Exception as exc:
+                    logger.warning("    diff [%d/%d] email_%d 异常: %s",
+                                   diff_done, len(diff_tasks), i, exc)
+                d_elapsed = time.time() - t_d0
+                if d_elapsed > 2:
+                    logger.info("    diff [%d/%d] email_%d 耗时 %.1fs",
+                                diff_done, len(diff_tasks), i, d_elapsed)
+            diff_elapsed = time.time() - t_diff
+            logger.info("  [%d/%d] diff翻译: %d 个, 耗时%.1fs",
+                        idx, total, len(diff_tasks), diff_elapsed)
 
-        logger.info("  [%d/%d] 翻译完成: %d 封邮件, %d 个 diff",
-                     idx, total, done, len(diff_tasks))
+        logger.info("  [%d/%d] 翻译完成: %d 封邮件 (网络请求%d次, 跳过%d封), %d 个 diff",
+                     idx, total, done, net_requests, skipped_emails, len(diff_tasks))
 
         # 生成 HTML
         commit = {
@@ -862,11 +984,13 @@ def run_translate(args, db: KnowledgeDB):
         out_file.write_text(html, encoding="utf-8")
         html_path = str(out_file)
 
-        # 写回 DB
-        db.update_thread_translated_path(tid, html_path)
+        # 写回 DB（线程局部连接，避免跨线程共享连接冲突）
+        local_db.update_thread_translated_path(tid, html_path)
 
-        logger.info("  [%d/%d] 已生成: %s (%d KB)",
-                     idx, total, out_file.name, len(html) // 1024)
+        total_elapsed = time.time() - t_start
+        logger.info("  [%d/%d] 已生成: %s (%d KB, 耗时%.1fs, 网络%d次)",
+                     idx, total, out_file.name, len(html) // 1024,
+                     total_elapsed, net_requests)
         return tid, True
 
     # ── 调度：线程级并行 ──
@@ -876,8 +1000,8 @@ def run_translate(args, db: KnowledgeDB):
     success = 0
     skipped = 0
 
-    if workers <= 1:
-        # 串行模式
+    if workers <= 1 or total <= 1:
+        # 串行模式（单线程或只有1个线程时直接串行，确保日志实时输出）
         for idx, thread in enumerate(threads, 1):
             _, ok = _translate_one_thread(idx, thread, total)
             if ok:
@@ -914,13 +1038,10 @@ def run_translate(args, db: KnowledgeDB):
 
     logger.info("翻译完成! 成功 %d/%d 个线程", success, total)
 
-    # 翻译缓存统计
-    stats = cache.stats()
-    if stats.get("total", 0) > 0:
-        logger.info(
-            "缓存统计: 命中 %d, 未命中 %d, 命中率 %s",
-            stats["hits"], stats["misses"], stats["hit_rate"],
-        )
+    # 翻译缓存统计（线程独立缓存，汇总为全局条目变化）
+    cache_after = TranslationCache().size()
+    logger.info("翻译缓存条目: %d -> %d (新增 %d)",
+                cache_baseline, cache_after, max(0, cache_after - cache_baseline))
 
 
 def show_stats(db: KnowledgeDB):
@@ -1004,7 +1125,7 @@ def main():
     parser.add_argument("--backend", default="google", choices=["google", "youdao", "api"],
                         help="翻译后端 (默认 google)")
     parser.add_argument("--proxy", default="", help="代理地址 (如 127.0.0.1:7897)")
-    parser.add_argument("--workers", type=int, default=1, help="并行翻译线程数 (默认 1)")
+    parser.add_argument("--workers", type=int, default=4, help="并行翻译线程数 (默认 4)")
     parser.add_argument("--thread-id", default="", help="指定单个线程 ID 翻译")
     parser.add_argument("--force", action="store_true", help="强制重新翻译已翻译的线程")
 

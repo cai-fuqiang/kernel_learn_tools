@@ -148,8 +148,20 @@ email_fts       — FTS5 全文搜索虚拟表
 - 高并发时 503 频率显著增加，建议 `--workers 1~2`，加延迟
 - `batch_collect.py` 每个 worker 独立 Session/Cookie，并发过高会触发更严限流
 
+### 翻译架构
+- **段落对齐翻译**: `translate_body_aligned()` 按段逐段翻译，返回 `List[(en, cn_or_None)]`
+  - 翻译阶段直接产出对齐的段落对，渲染阶段直接使用，无需 DP 猜测对齐
+  - `_render_bilingual_from_aligned()` 渲染对齐列表为双栏 HTML
+  - 旧 `translate_body()` + `_render_bilingual_body()` (DP对齐) 保留做兼容
+- **邮件正文/diff 分离**: `_split_body_and_diff()` 分离正文和 diff 代码
+  - 支持围栏 ````diff``` 和裸露 diff (diffstat / `--- a/`) 两种格式
+  - 向上吸收 git format-patch `---` 分隔线 + diffstat + `create mode` 行
+  - 使用 O(N) 向上回溯算法，避免重复组正则回溯
+- **超时保护**: 单封邮件翻译用 SingleThreadPool + timeout 包装，超时跳过不卡住
+- **大 diff 跳过**: diff > 8KB 时跳过注释翻译 (性价比低)
+
 ### 翻译后端
-- Google/有道翻译: 免费，走 urllib，支持 `--proxy`
+- Google/有道翻译: 免费，走 urllib，支持 `--proxy`，timeout=15s, max_retries=2
 - API 翻译: OpenAI 兼容 REST，支持 deepseek/kimi/siliconflow/aliyun 等
 - 翻译缓存: `data/.cache/translation_cache.db`，用 `--no-cache` 强制刷新
 

@@ -52,6 +52,7 @@ class CachedTranslator:
         self._translator = translator
         self._cache = cache
         self._backend = backend
+        self.last_cache_hit = False  # 上一次调用是否命中缓存
 
     def translate_email(self, email_info: dict) -> dict:
         """包装 translate_email，对 body 做缓存"""
@@ -59,10 +60,12 @@ class CachedTranslator:
         if body:
             cached = self._cache.get(self._backend, body)
             if cached is not None:
+                self.last_cache_hit = True
                 result = dict(email_info)
                 result["subject_cn"] = ""
                 result["body_cn"] = cached
                 return result
+        self.last_cache_hit = False
         result = self._translator.translate_email(email_info)
         body_cn = result.get("body_cn", "")
         if body and body_cn and "translation_error" not in result:
@@ -74,7 +77,9 @@ class CachedTranslator:
         if text:
             cached = self._cache.get(self._backend, text)
             if cached is not None:
+                self.last_cache_hit = True
                 return cached, ""
+        self.last_cache_hit = False
         translated, error = self._translator.translate_text(text)
         if text and translated and not error:
             self._cache.put(self._backend, text, translated)
@@ -159,10 +164,17 @@ def parse_analysis_checklist(text: str) -> str:
 # ─── 翻译逻辑 ────────────────────────────────────────────────────────────────
 
 def should_translate(body: str) -> bool:
-    """判断正文是否需要翻译"""
+    """判断正文是否需要翻译。
+
+    先分离 diff 代码块，只对正文部分做判断，避免大 patch 邮件被误判为不需要翻译。
+    """
     if not body or len(body.strip()) < 20:
         return False
-    lines = body.strip().splitlines()
+    # 分离 diff，只检查正文部分
+    text_part, _ = _split_body_and_diff(body)
+    if not text_part or len(text_part.strip()) < 20:
+        return False
+    lines = text_part.strip().splitlines()
     code_lines = sum(1 for l in lines if l.startswith(("+", "-", "diff ", "@@", "index ")))
     return code_lines <= len(lines) * 0.7
 
@@ -612,6 +624,151 @@ def translate_body(translator: BaseTranslator, body: str) -> str:
         result_parts.append(output)
 
     return "".join(result_parts)
+
+
+def translate_body_aligned(translator: 'BaseTranslator', body: str,
+                           progress_cb=None) -> 'List[Tuple[str, Optional[str]]]':
+    """按段落翻译邮件正文，返回对齐好的 (英文段落, 中文翻译或None) 列表。
+
+    与 translate_body 使用完全相同的段落拆分和判断逻辑，但输出结构化的
+    段落对齐列表，消除渲染阶段的 DP 对齐需求。
+
+    Args:
+        translator: 翻译器实例
+        body: 邮件正文
+        progress_cb: 可选回调 progress_cb(done, total, is_translated)，用于进度输出
+
+    返回:
+        List of (en_paragraph, cn_paragraph_or_None)
+        - cn 为 None 表示该段落不需要翻译（代码/引用/签名等）
+        - cn 为 str 表示翻译后的中文文本
+    """
+    if not should_translate(body):
+        # 整个 body 不需要翻译，按空行拆段，全部标记为不翻译
+        paras = re.split(r'\n\n+', body.strip())
+        return [(p, None) for p in paras if p.strip()]
+
+    # ── 按空行拆分为段落（只保留非空段落）──
+    raw_paragraphs = re.split(r'(\n\n+)', body)
+    content_parts = [p for p in raw_paragraphs if p.strip()]
+    total_parts = len(content_parts)
+    done_parts = 0
+
+    aligned = []  # List[(en_para, cn_or_None)]
+
+    # 预建 id(part) → index 映射，避免 .index() 的 O(N) 线性搜索
+    _id_to_idx = {id(p): i for i, p in enumerate(content_parts)}
+    _content_idx = 0  # 滑动索引，跟踪当前处理到 content_parts 的哪个位置
+
+    for part in raw_paragraphs:
+        # 跳过空行分隔符
+        if not part.strip():
+            continue
+
+        # ── 上下文感知判断 ──
+        # 使用 id() 映射 + 滑动索引，O(1) 查找
+        part_idx = _id_to_idx.get(id(part), _content_idx)
+        _content_idx = part_idx + 1
+        prev_part = content_parts[part_idx - 1] if part_idx > 0 else ""
+        next_part = content_parts[part_idx + 1] if part_idx < len(content_parts) - 1 else ""
+
+        if _is_untranslatable_in_context(part.strip(), prev_part.strip(), next_part.strip()):
+            aligned.append((part, None))
+            continue
+
+        # ── 判断段落是否需要翻译 ──
+        lines = part.strip().splitlines()
+        is_code_or_quote = all(
+            l.lstrip().startswith(('>', '+', '-', 'diff ', '@@', 'index '))
+            or l.strip().startswith((
+                'Signed-off-by:', 'Reviewed-by:', 'Acked-by:',
+                'Tested-by:', 'Cc:', 'Link:', 'Fixes:', 'Reported-by:',
+            ))
+            or _is_code_or_data_line(l)
+            or not l.strip()
+            for l in lines
+        )
+        if is_code_or_quote:
+            aligned.append((part, None))
+            continue
+
+        if lines:
+            code_count = sum(1 for l in lines if _is_code_or_data_line(l))
+            if code_count >= len(lines) * 0.5:
+                aligned.append((part, None))
+                continue
+
+        if part.strip().startswith('[...') and part.strip().endswith('...]'):
+            aligned.append((part, None))
+            continue
+
+        if part.strip().startswith('```'):
+            aligned.append((part, None))
+            continue
+
+        # ── 段落内部保护占位 ──
+        placeholders = {}
+        counter = [0]
+
+        def _ph(match, _c=counter, _p=placeholders):
+            key = "XYZPH%04dEND" % _c[0]
+            _c[0] += 1
+            _p[key] = match.group(0)
+            return key
+
+        protected = part
+        protected = re.sub(r"```[\s\S]*?```", _ph, protected)
+        protected = re.sub(r"\[\.\.\..*?行引用已省略\.\.\.\]", _ph, protected)
+        protected = re.sub(r"^>.*$", _ph, protected, flags=re.MULTILINE)
+        protected = re.sub(r"^[+-].*$", _ph, protected, flags=re.MULTILINE)
+        protected = re.sub(
+            r"^(Signed-off-by|Reviewed-by|Acked-by|Tested-by|Cc|Link):.*$",
+            _ph, protected, flags=re.MULTILINE,
+        )
+
+        _plines = []
+        for _ln in protected.split('\n'):
+            if _ln.strip() and not any(k in _ln for k in placeholders) and _is_code_or_data_line(_ln):
+                key = "XYZPH%04dEND" % counter[0]
+                counter[0] += 1
+                placeholders[key] = _ln
+                _plines.append(key)
+            else:
+                _plines.append(_ln)
+        protected = '\n'.join(_plines)
+
+        stripped = protected
+        for key in placeholders:
+            stripped = stripped.replace(key, "")
+        if not stripped.strip():
+            aligned.append((part, None))
+            continue
+
+        # ── 合并段落内软换行 ──
+        merged = _merge_soft_linebreaks(protected, placeholders)
+
+        # ── 翻译 ──
+        tr = translator.translate_email({"subject": "", "body": merged})
+        output = tr.get("body_cn", "") or ""
+
+        done_parts += 1
+        if output:
+            # 还原占位符
+            for key, val in placeholders.items():
+                output = output.replace(key, val)
+                lower_key = key.lower()
+                if lower_key != key and lower_key in output.lower():
+                    output = re.sub(re.escape(key), lambda m, v=val: v, output, flags=re.IGNORECASE)
+            output = _clean_translation_artifacts(output)
+            aligned.append((part, output))
+            if progress_cb:
+                progress_cb(done_parts, total_parts, True)
+        else:
+            aligned.append((part, None))
+            if progress_cb:
+                progress_cb(done_parts, total_parts, False)
+
+    return aligned if aligned else [(body, None)]
 
 
 # ─── 线程构建 ─────────────────────────────────────────────────────────────────
@@ -1512,19 +1669,63 @@ def _split_body_and_diff(body: str) -> tuple:
         return text_part, diff_part
 
     # 格式2：裸露 diff — 从 diffstat 或 '--- a/' 开始到末尾
-    # 先尝试匹配 diffstat 行（如 "kernel/sched/fair.c | 137 +++..."）后跟 "--- a/"
-    m = re.search(
-        r'^([ \t]*\S+\.\w+\s+\|\s+\d+.*\n)+\s*\d+\s+files?\s+changed.*\n',
-        body, re.MULTILINE,
-    )
+    # 优化策略：先定位 "N file(s) changed" 行，再向上回溯找 diffstat 起始位置
+    # 避免在整个大文本上做昂贵的重复组正则匹配
     diff_start = None
-    if m:
-        diff_start = m.start()
-    else:
+    _fc_pat = re.compile(r"^\s*\d+\s+files?\s+changed", re.MULTILINE)
+    _fc_match = _fc_pat.search(body)
+    if _fc_match:
+        # 从 "files changed" 行向上找连续的 "file.ext | NNN" diffstat 行
+        _fc_line_start = body.rfind("\n", 0, _fc_match.start())
+        _fc_line_start = _fc_line_start + 1 if _fc_line_start >= 0 else 0
+        _diffstat_re = re.compile(r"^[ \t]*\S+[\w./]+\s+\|\s+\d+")
+        _pos = _fc_line_start
+        while _pos > 0:
+            _prev_nl = body.rfind("\n", 0, _pos - 1)
+            _line_start = _prev_nl + 1 if _prev_nl >= 0 else 0
+            _line = body[_line_start:_pos - 1]
+            if _diffstat_re.match(_line):
+                _pos = _line_start
+            else:
+                break
+        if _pos < _fc_line_start:
+            diff_start = _pos
+            # 向上吸收 git format-patch 的 "---" 分隔线
+            if _pos > 0:
+                _sep_nl = body.rfind("\n", 0, _pos - 1)
+                _sep_start = _sep_nl + 1 if _sep_nl >= 0 else 0
+                _sep_line = body[_sep_start:_pos].rstrip()
+                if _sep_line == "---":
+                    diff_start = _sep_start
+    if diff_start is None:
         # 直接找 '--- a/' 开头
-        m2 = re.search(r'^--- a/', body, re.MULTILINE)
+        m2 = re.search(r"^--- a/", body, re.MULTILINE)
         if m2:
             diff_start = m2.start()
+            # 同样向上吸收 diffstat（如果有的话）
+            if _fc_match and _fc_match.start() < m2.start():
+                # diffstat 在 '--- a/' 前面，回退到 diffstat 起始
+                _fc_line_start = body.rfind("\n", 0, _fc_match.start())
+                _fc_line_start = _fc_line_start + 1 if _fc_line_start >= 0 else 0
+                _diffstat_re = re.compile(r"^[ \t]*\S+[\w./]+\s+\|\s+\d+")
+                _pos = _fc_line_start
+                while _pos > 0:
+                    _prev_nl = body.rfind("\n", 0, _pos - 1)
+                    _line_start = _prev_nl + 1 if _prev_nl >= 0 else 0
+                    _line = body[_line_start:_pos - 1]
+                    if _diffstat_re.match(_line):
+                        _pos = _line_start
+                    else:
+                        break
+                if _pos < _fc_line_start:
+                    diff_start = _pos
+                # 向上吸收 "---" 分隔线
+                if diff_start > 0:
+                    _sep_nl = body.rfind("\n", 0, diff_start - 1)
+                    _sep_start = _sep_nl + 1 if _sep_nl >= 0 else 0
+                    _sep_line = body[_sep_start:diff_start].rstrip()
+                    if _sep_line == "---":
+                        diff_start = _sep_start
 
     if diff_start is not None:
         text_part = body[:diff_start].rstrip()
@@ -1900,18 +2101,68 @@ def _optimal_alignment(paras_cn: list, paras_en: list, en_untrans: list) -> list
     return result
 
 
+def _filter_aligned_for_text(aligned_paras: list, text_orig: str) -> list:
+    """从完整对齐列表中过滤出属于正文部分（非 diff）的段落。
+
+    当 body 包含 diff 时，translate_body_aligned 对整个 body 做了段落翻译，
+    但渲染时 diff 独立展示，正文区域只需要非 diff 段落。
+    """
+    text_paras = set()
+    for p in re.split(r'\n\n+', text_orig.strip()):
+        if p.strip():
+            text_paras.add(p.strip())
+
+    result = []
+    for en, cn in aligned_paras:
+        # 段落如果出现在 text_orig 中，保留
+        if en.strip() in text_paras:
+            result.append((en, cn))
+        else:
+            # diff 行段落通常以 diff --git / --- a/ / +++ b/ 开头
+            first_line = en.strip().split('\n')[0] if en.strip() else ""
+            if first_line.startswith(('diff --git', '--- a/', '+++ b/', '@@', 'index ')):
+                continue  # diff 段落，跳过
+            # 兜底：保留（可能是正文中被拆分方式不同的段落）
+            result.append((en, cn))
+
+    return result if result else aligned_paras
+
+
+def _render_bilingual_from_aligned(aligned_paras: list) -> str:
+    """从 translate_body_aligned 的输出直接渲染双栏对比 HTML。
+
+    参数:
+        aligned_paras: List[(en_para, cn_para_or_None)]，由 translate_body_aligned 返回
+
+    布局：左侧=英文原文，右侧=中文翻译（如有）。段落已在翻译阶段完成对齐。
+    """
+    rows = []
+    for en, cn in aligned_paras:
+        if cn is not None:
+            # 有翻译 → 左EN右CN
+            rows.append(
+                f'<div class="pg-cell"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-cell pg-cn"><pre>{_esc(cn)}</pre></div>'
+            )
+        else:
+            # 无翻译（代码/引用/签名等）→ 横跨整行
+            rows.append(
+                f'<div class="pg-left"><pre>{_esc(en)}</pre></div>'
+                f'<div class="pg-spacer"></div>'
+            )
+
+    if not rows:
+        return ""
+
+    return '<div class="para-grid">\n' + '\n'.join(rows) + '\n</div>'
+
+
 def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     """将中英文正文按段落对齐，生成左右对比的 HTML 网格。
 
     布局：左侧=英文原文，右侧=中文翻译。
-    核心原则：右侧(中文)一定是左侧(英文)内容的翻译。
-
-    策略：使用动态规划全局最优匹配：
-      1. 预计算所有 (CN, EN) 对的翻译相似度
-      2. DP 找到总分最大的顺序一致匹配
-      3. EN untrans → 左侧显示原文，右侧留空
-      4. EN 配对 → 左EN右CN对齐显示
-      5. EN 未配对 → 左侧显示原文，右侧留空
+    此函数为旧接口兼容（text_cn 为翻译后拼接的字符串），使用 DP 对齐。
+    新代码应使用 _render_bilingual_from_aligned() 替代。
     """
     paras_cn = _split_paragraphs(text_cn)
     paras_en = _split_paragraphs(text_orig)
@@ -1930,20 +2181,17 @@ def _render_bilingual_body(text_cn: str, text_orig: str) -> str:
     for ei, en in enumerate(paras_en):
         action = alignment[ei]
         if action[0] == 'untrans':
-            # 不可翻译段落 → 左侧显示原文，右侧留空
             rows.append(
                 f'<div class="pg-left"><pre>{_esc(en)}</pre></div>'
                 f'<div class="pg-spacer"></div>'
             )
         elif action[0] == 'pair':
             ci = action[1]
-            # 左=EN原文, 右=CN翻译
             rows.append(
                 f'<div class="pg-cell"><pre>{_esc(en)}</pre></div>'
                 f'<div class="pg-cell pg-cn"><pre>{_esc(paras_cn[ci])}</pre></div>'
             )
         else:
-            # 未配对 → 左侧显示原文，右侧留空
             rows.append(
                 f'<div class="pg-left"><pre>{_esc(en)}</pre></div>'
                 f'<div class="pg-spacer"></div>'
@@ -2015,19 +2263,31 @@ def _html_email_node(
     date = em.get("date", "")
     initial = (author[0].upper() if author else "?")
 
-    body_cn = translated_bodies.get(f"email_{i}", "") if i is not None else ""
+    body_data = translated_bodies.get(f"email_{i}") if i is not None else None
     body_orig = em.get("body", "")
-    has_translation = body_cn and body_cn != body_orig
 
-    # 分离 diff 代码块：翻译区域只保留正文，diff 单独展示
-    # diff 始终使用英文原文，不使用翻译版本（避免代码被翻译）
-    # 但使用预翻译的注释版本（如果存在）
+    # 分离 diff 代码块
     text_orig, diff_orig = _split_body_and_diff(body_orig)
-    if has_translation:
-        text_cn, _ = _split_body_and_diff(body_cn)
-    else:
-        text_cn = ""
     diff_code = translated_bodies.get(f"diff_{i}", diff_orig) if i is not None else diff_orig
+
+    # 判断翻译数据格式：list = 新对齐列表，str = 旧翻译文本
+    aligned_paras = None
+    has_translation = False
+    text_cn = ""
+    if isinstance(body_data, list):
+        # 新格式：translate_body_aligned 返回的 [(en, cn_or_None)]
+        # 过滤掉 diff 部分的段落（只保留正文段落）
+        text_orig_stripped = text_orig.strip()
+        if text_orig_stripped != body_orig.strip():
+            # body 含 diff，需要重新对齐正文部分
+            aligned_paras = _filter_aligned_for_text(body_data, text_orig)
+        else:
+            aligned_paras = body_data
+        has_translation = any(cn is not None for _, cn in aligned_paras)
+    elif isinstance(body_data, str) and body_data:
+        has_translation = body_data != body_orig
+        if has_translation:
+            text_cn, _ = _split_body_and_diff(body_data)
 
     # 节点唯一 ID
     node_id = f'email-node-{i}' if i is not None else f'email-node-x{nid}'
@@ -2043,8 +2303,11 @@ def _html_email_node(
     card.append(f'    <button class="focus-btn" onclick="focusEmail(\'{node_id}\')" title="聚焦此邮件（全宽显示）">&#128269;</button>')
     card.append(f'  </div>')
 
-    if has_translation:
-        # 双栏对比：左EN右CN，使用去除 diff 后的正文，diff 在下方独立展示
+    if aligned_paras is not None and has_translation:
+        # 新格式：直接使用对齐列表渲染
+        card.append(f'  {_render_bilingual_from_aligned(aligned_paras)}')
+    elif has_translation and text_cn:
+        # 旧格式兼容：DP 对齐
         card.append(f'  {_render_bilingual_body(text_cn, text_orig)}')
     else:
         # 无翻译时：内容放在左侧栏
@@ -2321,7 +2584,7 @@ def main():
             body = em.get("body", "")
             done += 1
             print(f"  [{i+1}/{total}] {tag} {em.get('subject', '')[:50]}")
-            translated[f"email_{i}"] = translate_body(translator, body)
+            translated[f"email_{i}"] = translate_body_aligned(translator, body)
             if done % 5 == 0:
                 time.sleep(1)
     else:
@@ -2334,7 +2597,7 @@ def main():
         def _translate_one(idx_em):
             i, em = idx_em
             body = em.get("body", "")
-            result = translate_body(translator, body)
+            result = translate_body_aligned(translator, body)
             return i, em, result
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
