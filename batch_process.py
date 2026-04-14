@@ -757,21 +757,22 @@ def run_translate(args, db: KnowledgeDB):
     output_dir = OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    success = 0
-    for idx, thread in enumerate(threads, 1):
+    # ── 单个线程翻译函数（可被线程池调用）──
+    def _translate_one_thread(idx, thread, total):
+        """翻译单个线程，返回 (thread_id, success: bool)"""
         tid = thread["id"]
         subject = thread.get("subject", "(无主题)")
-        logger.info("[%d/%d] 翻译线程: %s", idx, len(threads), subject[:60])
+        logger.info("[%d/%d] 翻译线程: %s", idx, total, subject[:60])
 
         # 获取线程邮件
         emails_db = db.get_thread_emails(tid)
         if not emails_db:
-            logger.warning("  线程无邮件，跳过")
-            continue
+            logger.warning("  [%d/%d] 线程无邮件，跳过", idx, total)
+            return tid, False
 
         # 格式转换
         emails = [_db_email_to_translate_fmt(em) for em in emails_db]
-        logger.info("  邮件数: %d", len(emails))
+        logger.info("  [%d/%d] 邮件数: %d", idx, total, len(emails))
 
         # 收集需要翻译的任务
         translated = {}
@@ -781,34 +782,13 @@ def run_translate(args, db: KnowledgeDB):
             if should_translate(body):
                 tasks.append((i, em))
 
-        # 翻译邮件正文
+        # 翻译邮件正文（线程内串行，避免 Google 限流）
         done = 0
-        if workers <= 1 or len(tasks) < 2:
-            # 串行模式
-            for i, em in tasks:
-                done += 1
-                translated[f"email_{i}"] = translate_body(translator, em.get("body", ""))
-                if done % 5 == 0:
-                    time.sleep(0.5)
-        else:
-            # 多线程并行模式
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            import threading
-            lock = threading.Lock()
-
-            def _do_translate(idx_em):
-                i, em = idx_em
-                return i, translate_body(translator, em.get("body", ""))
-
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = {pool.submit(_do_translate, t): t for t in tasks}
-                for future in as_completed(futures):
-                    i, result = future.result()
-                    translated[f"email_{i}"] = result
-                    done += 1
-                    with lock:
-                        if done % 10 == 0:
-                            logger.info("    翻译进度: %d/%d", done, len(tasks))
+        for i, em in tasks:
+            done += 1
+            translated[f"email_{i}"] = translate_body(translator, em.get("body", ""))
+            if done % 5 == 0:
+                time.sleep(0.3)
 
         # 翻译邮件内 diff 注释
         diff_tasks = []
@@ -817,23 +797,13 @@ def run_translate(args, db: KnowledgeDB):
             if em_diff:
                 diff_tasks.append((i, em_diff))
 
-        if workers <= 1 or len(diff_tasks) < 2:
-            for i, em_diff in diff_tasks:
-                translated[f"diff_{i}"] = _translate_diff_comments(translator, em_diff)
-        else:
-            def _do_diff(idx_diff):
-                i, d = idx_diff
-                return i, _translate_diff_comments(translator, d)
+        for i, em_diff in diff_tasks:
+            translated[f"diff_{i}"] = _translate_diff_comments(translator, em_diff)
 
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [pool.submit(_do_diff, t) for t in diff_tasks]
-                for future in as_completed(futures):
-                    i, result = future.result()
-                    translated[f"diff_{i}"] = result
+        logger.info("  [%d/%d] 翻译完成: %d 封邮件, %d 个 diff",
+                     idx, total, done, len(diff_tasks))
 
-        logger.info("  翻译完成: %d 封邮件, %d 个 diff", done, len(diff_tasks))
-
-        # 生成 HTML — 构造一个虚拟 commit 信息
+        # 生成 HTML
         commit = {
             "subject": subject,
             "date": thread.get("start_date", ""),
@@ -859,10 +829,38 @@ def run_translate(args, db: KnowledgeDB):
         # 写回 DB
         db.update_thread_translated_path(tid, html_path)
 
-        logger.info("  已生成: %s (%d KB)", out_file.name, len(html) // 1024)
-        success += 1
+        logger.info("  [%d/%d] 已生成: %s (%d KB)",
+                     idx, total, out_file.name, len(html) // 1024)
+        return tid, True
 
-    logger.info("翻译完成! 成功 %d/%d 个线程", success, len(threads))
+    # ── 调度：线程级并行 ──
+    total = len(threads)
+    success = 0
+
+    if workers <= 1:
+        # 串行模式
+        for idx, thread in enumerate(threads, 1):
+            _, ok = _translate_one_thread(idx, thread, total)
+            if ok:
+                success += 1
+    else:
+        # 多线程并行：多个线程同时翻译
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_map = {}
+            for idx, thread in enumerate(threads, 1):
+                f = pool.submit(_translate_one_thread, idx, thread, total)
+                future_map[f] = thread
+            for future in as_completed(future_map):
+                try:
+                    _, ok = future.result()
+                    if ok:
+                        success += 1
+                except Exception as e:
+                    tid = future_map[future].get("id", "?")
+                    logger.error("翻译线程 %s 异常: %s", tid, e)
+
+    logger.info("翻译完成! 成功 %d/%d 个线程", success, total)
 
     # 翻译缓存统计
     stats = cache.stats()
