@@ -329,6 +329,12 @@ def _is_code_or_data_line(line):
     if re.match(r'\s*t=\d+\s+V=\d+', s):
         return True
 
+    # git format-patch 元数据行：create mode / delete mode / rename
+    if re.match(r'\s*(create|delete)\s+mode\s+\d+', s):
+        return True
+    if re.match(r'\s*rename\s+(from|to)\s+', s):
+        return True
+
     return False
 
 
@@ -397,6 +403,21 @@ def _extract_comment_text(comment_lines: list) -> str:
     return ' '.join(texts)
 
 
+def _is_license_or_legal_text(text: str) -> bool:
+    """判断注释文本是否是许可证/版权等法律文本，不应翻译。"""
+    lower = text.lower()
+    # 常见许可证关键词组合
+    license_keywords = [
+        'license', 'licence', 'copyright', 'warranty',
+        'redistribute', 'free software foundation',
+        'general public license', 'permission is hereby granted',
+        'as-is', 'without warranty', 'merchantability',
+        'spdx-license-identifier',
+    ]
+    hits = sum(1 for kw in license_keywords if kw in lower)
+    return hits >= 2
+
+
 def _translate_diff_comments(translator: 'BaseTranslator', diff_text: str) -> str:
     """Translate C code comments in diff, keep code unchanged."""
     if not diff_text or not translator:
@@ -438,6 +459,12 @@ def _translate_diff_comments(translator: 'BaseTranslator', diff_text: str) -> st
                 # 提取完整注释文本
                 comment_text = _extract_comment_text(multiline_buf)
                 if comment_text and len(comment_text) > 10:
+                    # 跳过许可证/版权等法律文本
+                    if _is_license_or_legal_text(comment_text):
+                        result.extend(multiline_buf)
+                        multiline_buf = []
+                        i += 1
+                        continue
                     try:
                         cn = translator.translate_email({"subject": "", "body": comment_text})
                         cn_text = cn.get("body_cn", "")
@@ -465,7 +492,8 @@ def _translate_diff_comments(translator: 'BaseTranslator', diff_text: str) -> st
         m = re.search(r'/\*(.+?)\*/', stripped)
         if m:
             comment_body = m.group(1).strip()
-            if len(comment_body) > 10 and re.search(r'[a-zA-Z]{3,}', comment_body):
+            if len(comment_body) > 10 and re.search(r'[a-zA-Z]{3,}', comment_body) \
+                    and not _is_license_or_legal_text(comment_body):
                 try:
                     cn = translator.translate_email({"subject": "", "body": comment_body})
                     cn_text = cn.get("body_cn", "")
@@ -1818,8 +1846,19 @@ def _is_untranslatable_in_context(para: str, prev_para: str, next_para: str) -> 
     next_untrans = bool(next_para) and _is_untranslatable(next_para)
 
     # 短段落（<= 5 个单词）夹在不可翻译段落之间 → 数据表标题/小节标题
-    if word_count <= 5 and (prev_untrans or next_untrans):
-        return True
+    # 但排除正常英文句子（含常见动词/句号结尾/This/The/It 开头等）
+    if word_count <= 5 and (prev_untrans and next_untrans):
+        # 正常句子模式：以常见代词/冠词开头，或以句号结尾
+        first_word = s.split()[0] if s.split() else ""
+        is_sentence = (
+            s.endswith(('.', '!', '?'))
+            or first_word.lower() in (
+                'this', 'the', 'a', 'an', 'it', 'we', 'i', 'he', 'she',
+                'they', 'you', 'there', 'here', 'please', 'also', 'note',
+            )
+        )
+        if not is_sentence:
+            return True
 
     # "Label: value" 格式行紧邻数据段落（如 "Base: v6.5-rc4-based kernel"）
     if len(non_empty) <= 2 and all(re.match(r'^\s*\w[\w\s]*:\s+\S', l) for l in non_empty):
@@ -2106,26 +2145,81 @@ def _filter_aligned_for_text(aligned_paras: list, text_orig: str) -> list:
 
     当 body 包含 diff 时，translate_body_aligned 对整个 body 做了段落翻译，
     但渲染时 diff 独立展示，正文区域只需要非 diff 段落。
+
+    处理混合段落（如 Signed-off-by + --- + diffstat 在同一段落）：
+    用 text_orig 的行集合做行级匹配，只保留属于正文的行。
     """
     text_paras = set()
     for p in re.split(r'\n\n+', text_orig.strip()):
         if p.strip():
             text_paras.add(p.strip())
 
+    # 构建 text_orig 的行集合，用于行级匹配
+    text_lines = set()
+    for line in text_orig.strip().splitlines():
+        sl = line.strip()
+        if sl:
+            text_lines.add(sl)
+
     result = []
     for en, cn in aligned_paras:
-        # 段落如果出现在 text_orig 中，保留
-        if en.strip() in text_paras:
+        stripped = en.strip()
+        # 段落如果完整出现在 text_orig 中，保留
+        if stripped in text_paras:
             result.append((en, cn))
-        else:
-            # diff 行段落通常以 diff --git / --- a/ / +++ b/ 开头
-            first_line = en.strip().split('\n')[0] if en.strip() else ""
-            if first_line.startswith(('diff --git', '--- a/', '+++ b/', '@@', 'index ')):
-                continue  # diff 段落，跳过
-            # 兜底：保留（可能是正文中被拆分方式不同的段落）
-            result.append((en, cn))
+            continue
+
+        # diff 行段落通常以 diff --git / --- a/ / +++ b/ 开头
+        first_line = stripped.split('\n')[0] if stripped else ""
+        if first_line.startswith(('diff --git', '--- a/', '+++ b/', '@@', 'index ')):
+            continue  # 纯 diff 段落，跳过
+
+        # 混合段落检测：段落可能跨越 text/diff 边界
+        # （如 Signed-off-by 行和 --- + diffstat 在同一段落）
+        en_lines = stripped.splitlines()
+        text_part_lines = []
+        hit_diff = False
+        for line in en_lines:
+            sl = line.strip()
+            if sl and sl in text_lines:
+                text_part_lines.append(line)
+            elif _is_diff_meta_line(sl):
+                # diff 元数据行（---分隔线、diffstat、create mode等），跳过
+                hit_diff = True
+                break  # 从这里开始都是 diff 内容，截断
+            elif sl:
+                text_part_lines.append(line)
+
+        if text_part_lines:
+            trimmed = '\n'.join(text_part_lines)
+            # 如果 en 被截断（混合段落），cn 可能包含 diff 翻译内容，丢弃
+            result.append((trimmed, None if hit_diff else cn))
+        # else: 整个段落都是 diff 内容，跳过
 
     return result if result else aligned_paras
+
+
+def _is_diff_meta_line(line: str) -> bool:
+    """判断单行是否是 diff 元数据行（---分隔线、diffstat、create mode 等）。"""
+    s = line.strip()
+    if not s:
+        return False
+    # git format-patch 的 --- 分隔线
+    if s == '---':
+        return True
+    # diffstat 行：file.ext | NNN +/-
+    if re.match(r'^[ \t]*\S+[\w./]+\s+\|\s+\d+', s):
+        return True
+    # "N files changed" 汇总行
+    if re.match(r'^\s*\d+\s+files?\s+changed', s):
+        return True
+    # create/delete mode 行
+    if re.match(r'^\s*(create|delete)\s+mode\s+\d+', s):
+        return True
+    # rename 行
+    if re.match(r'^\s*rename\s+', s):
+        return True
+    return False
 
 
 def _render_bilingual_from_aligned(aligned_paras: list) -> str:
