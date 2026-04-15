@@ -4,16 +4,42 @@
   "description": "Linux scheduler 延迟敏感调度、QoS、交互式任务、实时调度、CFS 公平性等相关讨论",
 
   "search_keywords": [
-    "sched latency",
-    "fair sleeper",
-    "latency nice",
-    "SCHED_DEADLINE",
-    "sched QoS",
-    "CFS interactive",
-    "wakeup preemption",
-    "sleeper fairness",
-    "vruntime",
-    "autogroup"
+    "sched/fair latency",
+    "scheduler latency nice",
+    "CFS latency sensitive",
+    "SCHED_DEADLINE bandwidth",
+    "wakeup preemption CFS",
+    "fair sleeper vruntime",
+    "GENTLE_FAIR_SLEEPERS",
+    "sysctl_sched_latency",
+    "sched_min_granularity",
+    "sched_entity vruntime",
+    "autogroup scheduling",
+    "sleeper fairness sched"
+  ],
+
+  "filter_require_subsystem": [
+    "sched", "scheduler", "scheduling",
+    "CFS", "completely fair",
+    "DEADLINE", "sched_deadline", "SCHED_DEADLINE",
+    "sched_entity", "sched_class", "sched_feat",
+    "fair_sched", "sched/fair", "sched/core", "sched/rt",
+    "task_struct", "rq", "runqueue", "run_queue",
+    "autogroup", "task_group"
+  ],
+
+  "filter_require_topic": [
+    "latency", "latency-nice", "latency_nice",
+    "QoS", "quality of service",
+    "preempt", "preemption", "wakeup preemption",
+    "interactive", "responsiveness", "response time",
+    "fair sleeper", "sleeper fairness",
+    "vruntime", "min_vruntime",
+    "GENTLE_FAIR_SLEEPERS",
+    "sysctl_sched_latency", "sched_min_granularity",
+    "sched_latency_ns", "sched_nr_latency",
+    "nice", "prio", "priority",
+    "deadline", "bandwidth", "throttle"
   ],
 
   "filter_keywords": [
@@ -22,10 +48,8 @@
     "QoS", "quality of service",
     "interactive", "responsiveness", "response time",
     "latency sensitive", "latency-sensitive",
-    "real-time", "realtime",
     "preempt", "preemption", "wakeup preemption",
-    "nice", "autogroup",
-    "wakeup", "wake_up", "wake-up",
+    "autogroup",
     "fair sleeper", "sleeper fairness",
     "vruntime", "sched_entity", "sched_class",
     "CFS", "completely fair",
@@ -34,19 +58,28 @@
   ],
 
   "subject_blacklist": [
-    "\\[PULL\\]", "\\[pull\\]",
-    "Recent changes", "drm-intel-next", "linux-next:", "mmotm ",
+    "Recent changes", "drm-intel-next",
     "\\[Qemu-devel\\]", "\\[media\\]", "\\[drm", "\\[xen",
     "\\[kernel-hardening\\]", "\\[Bug ", "\\[kvm", "\\[ACPI",
-    "\\[sound", "\\[pci", "\\[usb", "\\[net-next",
+    "\\[sound", "\\[pci", "\\[usb", "\\[net-next", "\\[net\\]",
     "\\[bluetooth", "\\[nfs", "\\[ceph", "\\[btrfs",
     "\\[ext4", "\\[xfs", "\\[crypto", "\\[powerpc",
     "\\[sparc", "\\[s390", "\\[mips", "\\[riscv",
     "\\[iommu", "\\[dmaengine", "\\[watchdog", "\\[hwmon",
-    "\\[platform-driver", "\\[input", "\\[gpio"
+    "\\[platform-driver", "\\[input", "\\[gpio",
+    "ath10k", "ath9k", "wifi", "wireless", "\\[iwlwifi",
+    "\\[tracing\\]", "\\[ftrace\\]", "\\[perf",
+    "\\[rcu", "tip/core/rcu",
+    "\\[printk", "printk:",
+    "\\[block\\]", "\\[nvme", "\\[scsi",
+    "\\[dpdk", "EventDev", "OPDL",
+    "nouveau", "swiotlb",
+    "\\[meta-", "\\[yocto", "\\[openembedded",
+    "nds32", "Andes\\(nds32\\)",
+    "\\[v4l", "\\[i2c", "\\[spi", "\\[mtd", "\\[clk"
   ],
 
-  "ai_filter_prompt": "你是一个 Linux 内核专家。判断下面这封内核邮件是否与以下话题**直接相关**：\n「scheduler 延迟敏感调度 / 调度 QoS / 调度延迟优化 / SCHED_DEADLINE / latency-nice / 交互式任务调度优化 / CFS 公平性 / fair sleeper / wakeup preemption」\n\n规则：\n- 仅当邮件**主要讨论或直接涉及**上述话题时回答 YES\n- 只是提到调度器但不涉及延迟/QoS/公平性的，回答 NO\n- 纯硬件驱动/文件系统/网络/安全模块的邮件，即使提到调度，也回答 NO\n- 只回答 YES 或 NO，然后用一句话说明理由",
+  "ai_filter_prompt": "你是一个 Linux 内核专家。判断下面这封内核邮件是否与以下话题**直接相关**：\n「scheduler 延迟敏感调度 / 调度 QoS / 调度延迟优化 / SCHED_DEADLINE / latency-nice / 交互式任务调度优化 / CFS 公平性 / fair sleeper / wakeup preemption」\n\n规则：\n- 仅当邮件**主要讨论或直接涉及**上述话题时回答 YES\n- 只是提到调度器但不涉及延迟/QoS/公平性的，回答 NO\n- 纯硬件驱动/文件系统/网络/安全模块的邮件，即使提到调度，也回答 NO\n- WiFi/网络/存储/GPU驱动中提到 latency 的，回答 NO（那是设备延迟，不是调度延迟）\n- 只回答 YES 或 NO，然后用一句话说明理由",
 
   "ai_summary_extra": "请特别关注: 延迟优先级、唤醒抢占策略、CFS vruntime 计算、fair sleeper 补偿、交互式任务识别等技术细节"
 }

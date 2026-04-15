@@ -1,186 +1,193 @@
-#!/usr/bin/env python3
-"""fix_thread_association.py — 完整重建 threads 表 + 修复 emails.thread_id
+"""修复 threads 和 emails 表之间 thread_id 关联断裂的问题。
 
-数据问题诊断:
-  - threads 表是按 Lore 搜索结果创建的，与 emails 表完全脱节
-  - emails.thread_id 全为空，无法关联线程
-  - 6850 封邮件中 5031 封有 in_reply_to，1819 封是根
+根因: batch_collect.py 旧版 download_one_thread 有两个 bug:
+  1. 仅 thread_emails > 1 时才创建 thread 记录 → 单封邮件的线程无 thread 记录
+  2. thread.id 用 build_threads() 重建的 root message_id，
+     而 email.thread_id 用搜索时的 root_mid → 两者可能不一致
 
-重建策略:
-  1. 用 emails 的 in_reply_to/message_id 关系构建线程树
-  2. 递归向上找到根邮件 → 每个根 = 一个线程
-  3. 写入 threads 表，id = 根邮件 message_id
-  4. 用递归向下传播 thread_id 到所有回复邮件
+修复策略:
+  A) 查找 "有 thread 记录但无邮件" 的情况:
+     - 如果 emails 表中有 thread_id 能匹配到 thread.root_message_id → 修正 thread.id
+     - 如果 emails 表有以 thread.id 为 message_id 的邮件且 thread_id 不同 → 更正
+     - 确实无邮件数据 → 标记 hidden=1
+  B) 查找 "有邮件但无 thread 记录" 的 thread_id:
+     - 为其创建 thread 记录
+
+Usage:
+    python fix_thread_association.py          # 预览模式
+    python fix_thread_association.py --apply  # 执行修复
 """
-import argparse
 import sqlite3
 import sys
 import time
-from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "data" / "knowledge.db"
+
+DB_PATH = "data/knowledge.db"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="重建 threads 表 + 修复 emails.thread_id")
-    parser.add_argument("--apply", action="store_true", help="执行重建（不加则预览）")
-    parser.add_argument("--db", default=str(DB_PATH), help="数据库路径")
-    args = parser.parse_args()
+    apply = "--apply" in sys.argv
+    mode = "执行" if apply else "预览"
+    print(f"=== 修复 thread-email 关联 ({mode}模式) ===\n")
 
-    db = sqlite3.connect(args.db)
-    db.execute("PRAGMA journal_mode=WAL")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
 
-    total = db.execute("SELECT COUNT(*) FROM emails").fetchone()[0]
-    with_reply = db.execute(
-        "SELECT COUNT(*) FROM emails WHERE in_reply_to != '' AND in_reply_to IS NOT NULL"
+    # 1. 统计当前状态
+    total_threads = conn.execute(
+        "SELECT COUNT(*) FROM threads WHERE hidden=0"
     ).fetchone()[0]
-    print(f"邮件总数: {total}, 有 in_reply_to: {with_reply}, 根邮件: {total - with_reply}")
-    print(f"现有 threads 数: {db.execute('SELECT COUNT(*) FROM threads').fetchone()[0]}")
+    total_emails = conn.execute("SELECT COUNT(*) FROM emails").fetchone()[0]
+    orphan_threads = conn.execute(
+        "SELECT COUNT(*) FROM threads WHERE hidden=0 "
+        "AND id NOT IN (SELECT DISTINCT thread_id FROM emails "
+        "WHERE thread_id IS NOT NULL AND thread_id != '')"
+    ).fetchone()[0]
+    orphan_emails = conn.execute(
+        "SELECT COUNT(DISTINCT thread_id) FROM emails "
+        "WHERE thread_id NOT IN (SELECT id FROM threads) "
+        "AND thread_id IS NOT NULL AND thread_id != ''"
+    ).fetchone()[0]
+
+    print(f"可见线程: {total_threads}, 总邮件: {total_emails}")
+    print(f"无邮件的线程: {orphan_threads}, 无 thread 记录的 email thread_id: {orphan_emails}")
     print()
 
-    # 收集所有 message_id
-    all_mids = set(
-        r[0] for r in db.execute("SELECT message_id FROM emails").fetchall()
-        if r[0]
-    )
-    print(f"去重 message_id 数: {len(all_mids)}")
+    # 2. 处理 "有 thread 记录但无邮件" 的线程
+    empty_threads = conn.execute(
+        "SELECT id, root_message_id, subject, email_count FROM threads "
+        "WHERE hidden=0 AND id NOT IN "
+        "(SELECT DISTINCT thread_id FROM emails "
+        "WHERE thread_id IS NOT NULL AND thread_id != '')"
+    ).fetchall()
 
-    # 找根邮件: 没有 in_reply_to，或 in_reply_to 指向不存在的邮件
-    roots = []
-    for row in db.execute(
-        "SELECT id, message_id, subject, from_name, date FROM emails "
-        "WHERE in_reply_to = '' OR in_reply_to IS NULL"
-    ).fetchall():
-        roots.append(row)
-    print(f"候选根邮件（无 in_reply_to）: {len(roots)}")
+    fixed_count = 0
+    hidden_count = 0
 
-    # 对每个候选根，用递归 CTE 向下探索所有回复
-    # 建立: message_id -> [child_message_ids]
-    irt_to_children = {}
-    for row in db.execute(
-        "SELECT in_reply_to, message_id FROM emails WHERE in_reply_to != '' AND in_reply_to IS NOT NULL"
-    ).fetchall():
-        parent_mid, child_mid = row
-        irt_to_children.setdefault(parent_mid, []).append(child_mid)
+    for t in empty_threads:
+        tid = t["id"]
+        root_mid = t["root_message_id"]
 
-    def walk_thread(root_mid, root_id):
-        """从根向下遍历，收集所有属于同一线程的 message_id"""
-        visited = set()
-        queue = [root_mid]
-        while queue:
-            mid = queue.pop()
-            if mid in visited:
+        # 策略 A1: 检查 emails 中是否有 message_id = tid 的邮件，其 thread_id 不同
+        row = conn.execute(
+            "SELECT thread_id FROM emails WHERE message_id = ?", (tid,)
+        ).fetchone()
+        if row and row["thread_id"] and row["thread_id"] != tid:
+            actual_tid = row["thread_id"]
+            # 看看那个 thread_id 下有多少邮件
+            cnt = conn.execute(
+                "SELECT COUNT(*) FROM emails WHERE thread_id = ?",
+                (actual_tid,)
+            ).fetchone()[0]
+            if cnt > 0:
+                # 检查是否已有另一个 thread 记录占用了这个 id
+                existing = conn.execute(
+                    "SELECT id FROM threads WHERE id = ?", (actual_tid,)
+                ).fetchone()
+                if existing:
+                    # 另一个 thread 已占用，直接 hidden 当前这个
+                    print(f"  HIDDEN: {tid[:50]} (重复, 另一个 thread {actual_tid[:50]} 已存在)")
+                    if apply:
+                        conn.execute("UPDATE threads SET hidden=1 WHERE id = ?", (tid,))
+                    hidden_count += 1
+                else:
+                    # 修正 thread.id 为 actual_tid
+                    print(f"  FIX ID: {tid[:50]} → {actual_tid[:50]} ({cnt} emails)")
+                    if apply:
+                        conn.execute(
+                            "UPDATE threads SET id = ?, root_message_id = ? WHERE id = ?",
+                            (actual_tid, actual_tid, tid)
+                        )
+                    fixed_count += 1
                 continue
-            visited.add(mid)
-            for child in irt_to_children.get(mid, []):
-                if child not in visited:
-                    queue.append(child)
-        return visited
 
-    # 构建新 threads
-    new_threads = []  # (thread_id, subject, start_date, email_count)
-    mid_to_thread = {}  # message_id -> thread_id
+        # 策略 A2: 检查 root_message_id 在 emails 中的 thread_id
+        if root_mid and root_mid != tid:
+            row2 = conn.execute(
+                "SELECT thread_id FROM emails WHERE message_id = ?", (root_mid,)
+            ).fetchone()
+            if row2 and row2["thread_id"]:
+                actual_tid2 = row2["thread_id"]
+                cnt2 = conn.execute(
+                    "SELECT COUNT(*) FROM emails WHERE thread_id = ?",
+                    (actual_tid2,)
+                ).fetchone()[0]
+                if cnt2 > 0:
+                    existing2 = conn.execute(
+                        "SELECT id FROM threads WHERE id = ?", (actual_tid2,)
+                    ).fetchone()
+                    if existing2:
+                        print(f"  HIDDEN: {tid[:50]} (重复, root_mid 的 thread 已存在)")
+                        if apply:
+                            conn.execute("UPDATE threads SET hidden=1 WHERE id = ?", (tid,))
+                        hidden_count += 1
+                    else:
+                        print(f"  FIX ID(root): {tid[:50]} → {actual_tid2[:50]} ({cnt2} emails)")
+                        if apply:
+                            conn.execute(
+                                "UPDATE threads SET id = ?, root_message_id = ? WHERE id = ?",
+                                (actual_tid2, actual_tid2, tid)
+                            )
+                        fixed_count += 1
+                    continue
 
-    for row in roots:
-        eid, root_mid, subject, from_name, date = row
-        thread_id = root_mid
-        # 向下收集所有回复
-        all_mids_in_thread = walk_thread(root_mid, eid)
-        email_count = len(all_mids_in_thread)
+        # 策略 A3: 无法修复 → 标记 hidden
+        print(f"  HIDDEN (无邮件): {tid[:60]} | {t['subject'][:40]}")
+        if apply:
+            conn.execute("UPDATE threads SET hidden=1 WHERE id = ?", (tid,))
+        hidden_count += 1
 
-        # 取线程中最早和最晚的日期
-        dates = [
-            r[0] for r in db.execute(
-                "SELECT date FROM emails WHERE message_id IN (%s)"
-                % ",".join("?" * len(all_mids_in_thread)),
-                list(all_mids_in_thread)
-            ).fetchall() if r[0]
-        ]
+    print(f"\n--- 线程修复: fixed={fixed_count}, hidden={hidden_count} ---\n")
 
-        # 收集参与者
-        participants = set(
-            r[0] for r in db.execute(
-                "SELECT from_name FROM emails WHERE message_id IN (%s) AND from_name != ''"
-                % ",".join("?" * len(all_mids_in_thread)),
-                list(all_mids_in_thread)
-            ).fetchall() if r[0]
-        )
+    # 3. 处理 "有邮件但无 thread 记录" 的 orphan thread_id → 创建 thread 记录
+    orphan_tids = conn.execute(
+        "SELECT thread_id, COUNT(*) as cnt, MIN(date) as min_date, "
+        "MAX(date) as max_date, MIN(subject) as subj "
+        "FROM emails WHERE thread_id NOT IN (SELECT id FROM threads) "
+        "AND thread_id IS NOT NULL AND thread_id != '' "
+        "GROUP BY thread_id"
+    ).fetchall()
 
-        new_threads.append({
-            "id": thread_id,
-            "root_message_id": root_mid,
-            "subject": subject or "No Subject",
-            "start_date": min(dates) if dates else "",
-            "end_date": max(dates) if dates else "",
-            "email_count": email_count,
-            "participant_count": len(participants),
-        })
+    created_count = 0
+    for row in orphan_tids:
+        tid = row["thread_id"]
+        cnt = row["cnt"]
+        # 获取第一封邮件的 from 信息来计算 participant_count
+        participants = conn.execute(
+            "SELECT COUNT(DISTINCT from_email) FROM emails WHERE thread_id = ?",
+            (tid,)
+        ).fetchone()[0]
 
-        for mid in all_mids_in_thread:
-            mid_to_thread[mid] = thread_id
+        print(f"  CREATE: {tid[:60]} ({cnt} emails, {participants} participants)")
+        if apply:
+            conn.execute(
+                "INSERT OR IGNORE INTO threads "
+                "(id, root_message_id, subject, start_date, end_date, "
+                "email_count, participant_count, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (tid, tid, row["subj"] or "", row["min_date"] or "",
+                 row["max_date"] or "", cnt, participants, time.time())
+            )
+        created_count += 1
 
-    print(f"重建后 threads 数: {len(new_threads)}")
-    thread_email_counts = [t["email_count"] for t in new_threads]
-    multi = sum(1 for c in thread_email_counts if c > 1)
-    print(f"多邮件线程: {multi}, 单邮件线程: {len(new_threads) - multi}")
-    print()
+    print(f"\n--- 新建 thread 记录: {created_count} ---\n")
 
-    if not args.apply:
-        print("预览完成。添加 --apply 执行实际重建。")
-        return
+    if apply:
+        conn.commit()
+        # 验证
+        final_orphan = conn.execute(
+            "SELECT COUNT(*) FROM threads WHERE hidden=0 "
+            "AND id NOT IN (SELECT DISTINCT thread_id FROM emails "
+            "WHERE thread_id IS NOT NULL AND thread_id != '')"
+        ).fetchone()[0]
+        final_visible = conn.execute(
+            "SELECT COUNT(*) FROM threads WHERE hidden=0"
+        ).fetchone()[0]
+        print(f"修复后: 可见线程={final_visible}, 仍无邮件的线程={final_orphan}")
+    else:
+        print("(预览模式，加 --apply 参数执行修复)")
 
-    print("开始重建...")
-    t0 = time.time()
-
-    # 1. 清空旧 threads 表
-    db.execute("DELETE FROM threads")
-    print("  清空 threads 表")
-
-    # 2. 插入新 threads
-    for t in new_threads:
-        db.execute(
-            """INSERT INTO threads
-               (id, root_message_id, subject, start_date, end_date,
-                email_count, participant_count, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (t["id"], t["root_message_id"], t["subject"],
-             t["start_date"], t["end_date"], t["email_count"],
-             t["participant_count"], time.time())
-        )
-    print(f"  插入 {len(new_threads)} 个线程")
-
-    # 3. 更新 emails.thread_id
-    updated = db.execute(
-        "UPDATE emails SET thread_id = ? WHERE message_id = ?",
-        ("", "")
-    )
-    db.execute("UPDATE emails SET thread_id = ''")
-
-    updated_count = 0
-    for mid, tid in mid_to_thread.items():
-        n = db.execute(
-            "UPDATE emails SET thread_id = ? WHERE message_id = ?",
-            (tid, mid)
-        )
-        updated_count += 1
-
-    db.commit()
-    elapsed = time.time() - t0
-
-    # 验证
-    empty_tid = db.execute(
-        "SELECT COUNT(*) FROM emails WHERE thread_id = '' OR thread_id IS NULL"
-    ).fetchone()[0]
-    new_total_threads = db.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
-    new_multi = db.execute(
-        "SELECT COUNT(*) FROM threads WHERE email_count > 1"
-    ).fetchone()[0]
-
-    print(f"\n重建完成! 耗时 {elapsed:.1f}s")
-    print(f"  threads 数: {new_total_threads} (多邮件: {new_multi})")
-    print(f"  thread_id 已关联: {updated_count}/{total} 封")
-    print(f"  仍无关联: {empty_tid} 封")
-    db.close()
+    conn.close()
 
 
 if __name__ == "__main__":

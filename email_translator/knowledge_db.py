@@ -331,9 +331,10 @@ class KnowledgeDB:
         return [dict(r) for r in rows]
 
     def get_untranslated_threads(self, limit: int = 100) -> List[Dict]:
-        """获取未翻译的线程（translated_html_path 为空）。"""
+        """获取未翻译的线程（translated_html_path 为空，排除 hidden）。"""
         rows = self.conn.execute(
-            "SELECT * FROM threads WHERE (translated_html_path IS NULL OR translated_html_path = '') "
+            "SELECT * FROM threads WHERE hidden = 0 "
+            "AND (translated_html_path IS NULL OR translated_html_path = '') "
             "ORDER BY start_date LIMIT ?",
             (limit,)
         ).fetchall()

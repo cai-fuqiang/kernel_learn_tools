@@ -43,9 +43,12 @@ alwaysApply: true
 ├── kb_web.py                  # 入口: 知识库 HTTP 浏览器 (SPA)
 ├── query_kb.py                # 入口: CLI 知识库查询
 ├── trim_context.py            # 入口: 裁剪 context_full.txt
+├── fix_thread_association.py   # 工具: 修复 threads↔emails 关联断裂
 ├── check_threads.py           # 工具: 检查线程完整性
 ├── check_anubis.py            # 工具: Anubis 挑战页面调试
 ├── _test_*.py                 # 测试脚本 (下划线前缀)
+├── topics/                    # 话题配置 (JSON)
+│   └── sched_latency.json     # 调度延迟话题: 搜索词+双层过滤+黑名单
 ├── data/                      # 运行时数据 (gitignore)
 │   ├── knowledge.db           # SQLite 知识库
 │   ├── emails/                # 原始邮件 JSON
@@ -90,7 +93,24 @@ kb_web.py
   → 从 knowledge.db 读取 → HTTP 服务展示 SPA
   → 内置翻译功能: 网页端可直接触发翻译 (POST /api/translate)
   → TranslateManager 后台线程翻译，前端实时轮询进度
+``it`
+
+### 采集过滤机制 (batch_collect.py)
 ```
+搜索结果 → 规则预筛 → (可选)AI精筛 → 入队下载
+                ↓
+        subject_blacklist_match():
+          1) _BUILTIN_SUBJECT_BLACKLIST 硬编码通用黑名单 (GIT PULL/stable review/AUTOSEL 等)
+          2) 话题配置 subject_blacklist (话题专属排除)
+        rule_filter():
+          - 双层过滤模式: 文本必须同时命中 subsystem 域词 + topic 域词
+          - 兼容旧模式: 单关键词子串匹配
+```
+
+### thread-email 数据一致性
+- thread.id 必须与 email.thread_id 一致 (都用搜索时的 root_mid)
+- 即使只有1封邮件也必须创建 thread 记录
+- `fix_thread_association.py` 可修复已有数据的关联断裂 (--apply 执行)
 
 ### 模块依赖链
 ```

@@ -65,7 +65,9 @@ class TopicConfig:
         self.display_name = ""
         self.description = ""
         self.search_keywords = []     # lore 搜索用
-        self.filter_keywords = []     # 规则预筛用
+        self.filter_keywords = []     # 规则预筛用 (旧模式: 任意匹配)
+        self.filter_require_subsystem = []  # 双层过滤: 子系统域词
+        self.filter_require_topic = []      # 双层过滤: 话题域词
         self.subject_blacklist = []   # 标题黑名单（正则列表）
         self.ai_filter_prompt = ""    # AI 精筛 prompt 模板
         self.ai_summary_extra = ""    # AI 摘要补充提示
@@ -83,12 +85,15 @@ class TopicConfig:
         self.description = cfg.get("description", "")
         self.search_keywords = cfg.get("search_keywords", [])
         self.filter_keywords = cfg.get("filter_keywords", [])
+        self.filter_require_subsystem = cfg.get("filter_require_subsystem", [])
+        self.filter_require_topic = cfg.get("filter_require_topic", [])
         self.subject_blacklist = cfg.get("subject_blacklist", [])
         self.ai_filter_prompt = cfg.get("ai_filter_prompt", "")
         self.ai_summary_extra = cfg.get("ai_summary_extra", "")
-        logger.info("加载话题配置: %s (%d 搜索词, %d 过滤词, %d 黑名单)",
+        mode = "双层" if self.filter_require_subsystem else "关键词"
+        logger.info("加载话题配置: %s (%d 搜索词, 过滤模式=%s, %d 黑名单)",
                     self.display_name, len(self.search_keywords),
-                    len(self.filter_keywords), len(self.subject_blacklist))
+                    mode, len(self.subject_blacklist))
 
     def compile_blacklist(self):
         """编译黑名单正则。"""
@@ -102,19 +107,59 @@ class TopicConfig:
 # 规则预筛 (方案B)
 # ======================================================================
 
+# 硬编码的通用标题黑名单 —— 这些模式在任何话题下都不应入库
+# 话题配置文件的 subject_blacklist 会叠加在此基础上
+_BUILTIN_SUBJECT_BLACKLIST = [
+    # --- Git Pull / 合并请求 ---
+    r"\[GIT PULL\]", r"\[git pull\]", r"GIT PULL", r"git pull",
+    # --- Stable 补丁集 ---
+    r"\d+\.\d+\.\d+-stable review",        # "4.9.71-stable review"
+    r"\[PATCH \d+\.\d+ ",                   # "[PATCH 4.9 000/177]"
+    r"AUTOSEL",                             # "[PATCH AUTOSEL for ..."
+    # --- 通用大型合集 / 噪音 ---
+    r"\[PULL\]", r"\[pull\]",
+    r"linux-next:", r"mmotm ",
+    r"active bugs in .* merge window",
+]
+_BUILTIN_BLACKLIST_RE = re.compile(
+    "|".join(_BUILTIN_SUBJECT_BLACKLIST), re.IGNORECASE
+)
+
+
 def subject_blacklist_match(subject: str, blacklist_re) -> bool:
-    """返回 True 表示该邮件应被跳过（黑名单命中）。"""
-    if not subject or not blacklist_re:
+    """返回 True 表示该邮件应被跳过（内置黑名单 + 话题黑名单命中）。"""
+    if not subject:
         return False
-    return bool(blacklist_re.search(subject))
+    # 先检查内置黑名单
+    if _BUILTIN_BLACKLIST_RE.search(subject):
+        return True
+    # 再检查话题级黑名单
+    if blacklist_re and blacklist_re.search(subject):
+        return True
+    return False
 
 
-def rule_filter(email: Dict, keywords: List[str], blacklist_re=None) -> bool:
-    """规则预筛：先过黑名单，再检查关键词。"""
+def rule_filter(email: Dict, keywords: List[str], blacklist_re=None,
+                require_subsystem: List[str] = None,
+                require_topic: List[str] = None) -> bool:
+    """规则预筛：先过黑名单，再检查关键词。
+
+    双层过滤模式 (当 require_subsystem + require_topic 均非空时):
+      text 必须同时包含至少一个 subsystem 域词 + 至少一个 topic 域词。
+    兼容模式 (无双层配置时): 任意匹配 keywords 中一个即可。
+    """
     subject = email.get("subject", "")
     if subject_blacklist_match(subject, blacklist_re):
         return False
     text = (subject + " " + email.get("body", "")[:2000]).lower()
+
+    # 双层过滤: 必须同时命中 subsystem 域 + topic 域
+    if require_subsystem and require_topic:
+        has_subsystem = any(kw.lower() in text for kw in require_subsystem)
+        has_topic = any(kw.lower() in text for kw in require_topic)
+        return has_subsystem and has_topic
+
+    # 兼容旧模式: 任意匹配一个关键词
     return any(kw.lower() in text for kw in keywords)
 
 
@@ -546,6 +591,7 @@ def run_collect(args):
             em["relevance_reason"] = root_email.get("relevance_reason", "")
             em["thread_id"] = thread_id
 
+        # 构建线程树（多封邮件时）
         thread_objs = []
         if len(thread_emails) > 1:
             try:
@@ -559,16 +605,33 @@ def run_collect(args):
             done_count[0] += 1
             idx = done_count[0]
 
+            thread_created = False
             for t in thread_objs:
                 td = t.to_dict()
+                # 始终以 thread_id 作为 thread id，保持与 email.thread_id 一致
                 db.upsert_thread({
-                    "id": td["root"]["message_id"],
-                    "root_message_id": td["root"]["message_id"],
+                    "id": thread_id,
+                    "root_message_id": thread_id,
                     "subject": td["root"]["subject"],
                     "start_date": td["date_range"][0],
                     "end_date": td["date_range"][1],
                     "email_count": 1 + len(td["replies"]),
                     "participant_count": len(td["participants"]),
+                })
+                thread_created = True
+                break
+
+            # 即使只有1封邮件或 build_threads 失败，也要创建 thread 记录
+            if not thread_created:
+                first_date = thread_emails[0].get("date", "")
+                db.upsert_thread({
+                    "id": thread_id,
+                    "root_message_id": thread_id,
+                    "subject": root_email.get("subject", ""),
+                    "start_date": first_date,
+                    "end_date": first_date,
+                    "email_count": len(thread_emails),
+                    "participant_count": 1,
                 })
 
         if new:
@@ -826,6 +889,7 @@ def run_download_workers_stream(db: KnowledgeDB, job_id: int, args, topic_name: 
                 em["relevance_score"] = queue_item.get("relevance_score", 0)
                 em["relevance_reason"] = queue_item.get("relevance_reason", "")
 
+            # 构建线程树（多封邮件时）
             thread_objs = []
             if len(thread_emails) > 1:
                 try:
@@ -835,16 +899,34 @@ def run_download_workers_stream(db: KnowledgeDB, job_id: int, args, topic_name: 
 
             with db_lock:
                 db.insert_emails_bulk(thread_emails)
+
+                thread_created = False
                 for t in thread_objs:
                     td = t.to_dict()
+                    # 始终以 root_mid 作为 thread id，保持与 email.thread_id 一致
                     db.upsert_thread({
-                        "id": td["root"]["message_id"],
-                        "root_message_id": td["root"]["message_id"],
+                        "id": root_mid,
+                        "root_message_id": root_mid,
                         "subject": td["root"]["subject"],
                         "start_date": td["date_range"][0],
                         "end_date": td["date_range"][1],
                         "email_count": 1 + len(td["replies"]),
                         "participant_count": len(td["participants"]),
+                    })
+                    thread_created = True
+                    break  # 只取第一个线程树（root_mid 对应的）
+
+                # 即使只有1封邮件或 build_threads 失败，也要创建 thread 记录
+                if not thread_created:
+                    first_date = thread_emails[0].get("date", "")
+                    db.upsert_thread({
+                        "id": root_mid,
+                        "root_message_id": root_mid,
+                        "subject": subject or thread_emails[0].get("subject", ""),
+                        "start_date": first_date,
+                        "end_date": first_date,
+                        "email_count": len(thread_emails),
+                        "participant_count": 1,
                     })
 
             for em in thread_emails:
@@ -894,10 +976,13 @@ def run_collect_v2(args):
         cfg = TopicConfig(args.topic_config)
         keywords, filter_keywords = cfg.search_keywords, cfg.filter_keywords
         blacklist_re = cfg.compile_blacklist()
+        require_subsystem = cfg.filter_require_subsystem
+        require_topic = cfg.filter_require_topic
         ai_prompt, topic_desc, topic_name = cfg.ai_filter_prompt, cfg.description, cfg.name
     else:
         keywords = [kw.strip() for kw in args.keywords.split(",") if kw.strip()]
         filter_keywords, blacklist_re = keywords, None
+        require_subsystem, require_topic = [], []
         ai_prompt, topic_desc = "", ", ".join(keywords)
         topic_name = args.keywords.replace(",", "_")[:30]
 
@@ -948,7 +1033,10 @@ def run_collect_v2(args):
         if args.ai_only:
             pre_filtered = batch
         else:
-            pre_filtered = [em for em in batch if rule_filter(em, filter_keywords, blacklist_re)]
+            pre_filtered = [em for em in batch if rule_filter(
+                em, filter_keywords, blacklist_re,
+                require_subsystem=require_subsystem,
+                require_topic=require_topic)]
 
         if args.no_ai:
             relevant = pre_filtered
